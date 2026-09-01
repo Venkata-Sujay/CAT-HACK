@@ -1,0 +1,48 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Environment ---
+.env
+!.env.example
+
+# --- Database (regenerate with: python -m app.seed) ---
+*.db
+*.db-wal
+*.db-shm
+backend/rental.db*
+
+# --- ML artifacts ---
+# The trained models (~3.4 MB total) ARE committed on purpose. This is a
+# hackathon submission repo: a reviewer who clones it should get a working
+# system without first having to run the training pipeline. Metadata and the
+# evaluation report are committed too, so the reported metrics are auditable.
+#
+# The generated training CSVs are NOT committed -- they are ~1.5 MB of
+# reproducible synthetic data that ml/generate_training_data.py recreates
+# deterministically from a fixed seed.
+ml/data/*.csv
+
+# --- Node ---
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# --- Logs ---
+*.log
+npm-debug.log*

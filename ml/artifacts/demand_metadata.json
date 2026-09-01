@@ -1,0 +1,48 @@
+{
+  "model_version": "demand-histgbr-v1",
+  "model_type": "HistGradientBoostingRegressor",
+  "trained_at": "2026-09-01T08:37:30.416258+00:00",
+  "training_rows": 3150,
+  "test_rows": 795,
+  "split": "time-aware (no shuffling)",
+  "split_date": "2026-07-10T00:00:00",
+  "feature_list": [
+    "site_encoded",
+    "product_encoded",
+    "day_of_week",
+    "week_of_year",
+    "month",
+    "is_weekend",
+    "prev_day_demand",
+    "prev_week_demand",
+    "rolling_7d_mean",
+    "rolling_14d_mean",
+    "rolling_30d_mean",
+    "avg_utilization_7d",
+    "active_rentals"
+  ],
+  "metrics": {
+    "model_mae": 0.504,
+    "model_rmse": 0.8337,
+    "baseline_mae": 0.6965,
+    "baseline_rmse": 1.075,
+    "improvement_over_baseline_pct": 27.64,
+    "beats_baseline": true
+  },
+  "feature_importance": {
+    "rolling_30d_mean": 0.34552,
+    "day_of_week": 0.3012,
+    "prev_week_demand": 0.09791,
+    "rolling_7d_mean": 0.09456,
+    "prev_day_demand": 0.01612,
+    "avg_utilization_7d": 0.0117,
+    "rolling_14d_mean": 0.00241,
+    "product_encoded": 0.00114,
+    "site_encoded": 0.00099,
+    "week_of_year": 0.0,
+    "month": 0.0,
+    "is_weekend": 0.0,
+    "active_rentals": -0.00035
+  },
+  "data_note": "Trained on SYNTHETIC data from ml/generate_training_data.py. Metrics measure fit to that generator, not real-world performance."
+}

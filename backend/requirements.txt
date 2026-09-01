@@ -1,0 +1,33 @@
+# Smart Rental Tracking System -- backend dependencies
+#
+# NOTE: passlib is deliberately ABSENT. passlib 1.7.4 reads
+# `bcrypt.__about__.__version__`, removed in bcrypt >= 4.1, and emits a trapped
+# AttributeError traceback on every hash. We call bcrypt directly instead
+# (see app/core/security.py).
+
+# --- Web ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.9
+pydantic-settings>=2.1
+python-multipart>=0.0.9
+
+# --- Database ---
+SQLAlchemy>=2.0.30
+alembic>=1.13
+# Uncomment for the PostgreSQL path (DATABASE_URL=postgresql+psycopg://...):
+# psycopg[binary]>=3.2
+
+# --- Auth ---
+bcrypt>=4.1
+python-jose[cryptography]>=3.3
+
+# --- ML / data ---
+scikit-learn>=1.5
+pandas>=2.2
+numpy>=1.26
+joblib>=1.4
+
+# --- Testing ---
+pytest>=8.0
+httpx>=0.27

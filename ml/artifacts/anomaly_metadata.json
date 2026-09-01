@@ -1,0 +1,35 @@
+{
+  "model_version": "anomaly-iforest-v1",
+  "model_type": "IsolationForest",
+  "trained_at": "2026-09-01T08:37:27.911822+00:00",
+  "training_rows": 11414,
+  "total_rows_available": 12000,
+  "feature_list": [
+    "runtime_minutes_today",
+    "idle_minutes_today",
+    "utilization",
+    "fuel_consumption_rate",
+    "fuel_level",
+    "continuous_runtime_minutes",
+    "engine_health_numeric",
+    "tire_health_numeric",
+    "operator_match",
+    "site_assignment_present",
+    "rental_active",
+    "hours_since_last_seen"
+  ],
+  "contamination": 0.03,
+  "n_estimators": 250,
+  "random_state": 42,
+  "alert_threshold": 0.0,
+  "severity_bands": {
+    "high": -0.06897315255076233,
+    "medium": -0.019036961258426688
+  },
+  "metrics": {
+    "held_out_detection_rate": 0.8156996587030717,
+    "false_positive_rate": 0.030050814788855792,
+    "alert_threshold": 0.0
+  },
+  "data_note": "Trained on SYNTHETIC data from ml/generate_training_data.py. Metrics measure fit to that generator, not real-world performance."
+}

@@ -1,0 +1,119 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-base text-ink font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "tnum";
+  }
+
+  /* Tabular numerals everywhere numbers change live -- otherwise KPI values
+     jitter horizontally on every poll as digit widths change. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-borderlight;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent/60 ring-offset-2 ring-offset-base;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface border border-border rounded-lg shadow-card;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2
+           text-sm font-medium transition-colors disabled:opacity-40
+           disabled:cursor-not-allowed whitespace-nowrap;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-base hover:bg-accent/90 font-semibold;
+  }
+  .btn-secondary {
+    @apply btn bg-elevated text-ink border border-border hover:bg-hover;
+  }
+  .btn-ghost {
+    @apply btn text-muted hover:text-ink hover:bg-elevated;
+  }
+  .btn-danger {
+    @apply btn bg-danger/15 text-danger border border-danger/30 hover:bg-danger/25;
+  }
+
+  .input {
+    @apply w-full bg-base border border-border rounded-md px-3 py-2 text-sm
+           text-ink placeholder:text-faint focus:border-accent/50 transition-colors;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2 py-0.5
+           text-2xs font-semibold uppercase tracking-wide whitespace-nowrap;
+  }
+
+  .th {
+    @apply text-left text-2xs font-semibold uppercase tracking-wider
+           text-faint px-3 py-2.5 whitespace-nowrap;
+  }
+  .td {
+    @apply px-3 py-2.5 text-sm whitespace-nowrap;
+  }
+}
+
+/* Leaflet dark theme. The default tiles are bright white and would blow out a
+   dark control-tower UI, so they are filtered rather than swapped for a
+   key-requiring dark tile provider. */
+.leaflet-container {
+  background: #0b0e13 !important;
+  font-family: inherit;
+}
+.leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.82) contrast(0.9) saturate(0.5);
+}
+.leaflet-control-attribution {
+  background: rgba(18, 22, 29, 0.85) !important;
+  color: #5c6678 !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a {
+  color: #8d97aa !important;
+}
+.leaflet-control-zoom a {
+  background: #12161d !important;
+  color: #e8ecf3 !important;
+  border-color: #242b38 !important;
+}
+.leaflet-control-zoom a:hover {
+  background: #212734 !important;
+}
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #1a1f28 !important;
+  color: #e8ecf3 !important;
+  border: 1px solid #242b38;
+}
+.leaflet-popup-content {
+  margin: 10px 12px !important;
+}
