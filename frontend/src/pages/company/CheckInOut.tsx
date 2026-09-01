@@ -22,6 +22,7 @@ import {
   SectionHeader,
   StatusChip,
 } from "../../components/ui";
+import { equipmentImage } from "../../lib/equipment";
 import { formatDateTime, formatDue, minutesToHours, productTypeLabel } from "../../lib/format";
 import {
   useAssetLookup,
@@ -185,14 +186,36 @@ export function CheckInOut() {
 function AssetSummary({ result }: { result: AssetLookupResponse }) {
   const { asset } = result;
   return (
-    <div className="bg-base border border-border rounded-md p-3 mb-4">
-      <div className="flex items-center justify-between gap-3 mb-2.5">
-        <div className="flex items-center gap-2.5">
-          <AssetCode code={asset.asset_code} className="text-base" />
-          <StatusChip status={asset.status} />
+    <div className="bg-base border border-border rounded-lg overflow-hidden mb-4">
+      <div className="flex items-stretch gap-3 border-b border-border">
+        <img
+          src={equipmentImage(asset.product_type, "card")}
+          alt={productTypeLabel(asset.product_type)}
+          className="w-28 h-[68px] object-cover shrink-0"
+        />
+        <div className="flex-1 min-w-0 flex items-center justify-between gap-3 pr-3 py-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5 mb-0.5">
+              <AssetCode code={asset.asset_code} className="text-base" />
+              <StatusChip status={asset.status} />
+            </div>
+            <div className="text-xs text-muted truncate">
+              {productTypeLabel(asset.product_type)}
+              {asset.model ? ` · ${asset.model}` : ""}
+            </div>
+          </div>
+          <span
+            className={`chip shrink-0 ${
+              asset.is_running
+                ? "bg-ok/15 text-ok border border-ok/30"
+                : "bg-elevated text-faint border border-border"
+            }`}
+          >
+            {asset.is_running ? "Running" : "Stopped"}
+          </span>
         </div>
-        <span className="text-xs text-muted">{productTypeLabel(asset.product_type)}</span>
       </div>
+      <div className="p-3">
       <div className="grid grid-cols-4 gap-3 text-xs">
         <div>
           <div className="text-2xs text-faint mb-0.5">Fuel</div>
@@ -212,6 +235,7 @@ function AssetSummary({ result }: { result: AssetLookupResponse }) {
         <div>
           <div className="text-2xs text-faint mb-0.5">Site</div>
           <div className="text-ink">{asset.site_code ?? "—"}</div>
+        </div>
         </div>
       </div>
     </div>

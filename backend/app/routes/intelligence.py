@@ -97,13 +97,28 @@ def get_forecast(
     site_id: int | None = None,
     product_type: ProductType | None = None,
     horizon: int = Query(default=7, ge=1, le=30),
+    day: int | None = Query(
+        default=None,
+        ge=1,
+        le=30,
+        description="Return only this exact horizon day. Omit for the whole series.",
+    ),
 ) -> list[ForecastOut]:
     """Demand forecast by site and product type.
+
+    Forecasts are generated for every day across the horizon, so `horizon`
+    selects a WINDOW (days 1..N) and `day` selects a SINGLE day. Screens that
+    want one headline number per site pass `day`; the timeline chart takes the
+    whole window.
 
     Clients see forecasts only for sites where they currently have equipment --
     the company's demand picture at other sites is not theirs to see.
     """
-    stmt = select(Forecast).where(Forecast.horizon_days <= horizon)
+    stmt = select(Forecast)
+    if day is not None:
+        stmt = stmt.where(Forecast.horizon_days == day)
+    else:
+        stmt = stmt.where(Forecast.horizon_days <= horizon)
 
     if not ctx.is_admin:
         visible = select(Asset.current_site_id).where(
@@ -123,6 +138,40 @@ def get_forecast(
         stmt.order_by(Forecast.forecast_date, Forecast.expected_shortfall.desc())
     ).scalars().all()
     return serialize_forecasts(db, list(rows))
+
+
+@router.get("/forecast/timeline", response_model=dict)
+def forecast_timeline(
+    site_id: int = Query(..., description="Site to chart"),
+    product_type: ProductType = Query(..., description="Equipment type to chart"),
+    history_days: int = Query(default=21, ge=7, le=45),
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(get_tenant_context),
+) -> dict:
+    """One continuous history-then-forecast series for a single site and type.
+
+    Tenant scoping mirrors `GET /forecast`: a client may only chart a site where
+    it currently has equipment. Out of scope returns an EMPTY series rather than
+    404 -- the scoped answer is genuinely "nothing", and a 404 here would
+    confirm the site exists.
+    """
+    from app.ml.forecast import demand_timeline
+
+    if not ctx.is_admin:
+        visible = select(Asset.current_site_id).where(
+            Asset.current_client_id == ctx.client_id, Asset.current_site_id.is_not(None)
+        )
+        allowed = {row for row in db.execute(visible).scalars() if row is not None}
+        if site_id not in allowed:
+            return {
+                "site_id": site_id,
+                "product_type": product_type.value,
+                "today": utcnow().date().isoformat(),
+                "model_version": None,
+                "points": [],
+            }
+
+    return demand_timeline(db, site_id, product_type.value, history_days=history_days)
 
 
 @router.post("/forecast/regenerate", response_model=dict)

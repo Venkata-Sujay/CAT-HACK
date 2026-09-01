@@ -1,6 +1,6 @@
 """Client (tenant) endpoints. Company roles only."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -8,6 +8,12 @@ from sqlalchemy.orm import Session
 from app.core.deps import TenantContext, require_admin
 from app.database import get_db
 from app.models import Alert, AlertSeverity, AlertStatus, Asset, Client, Employee
+from app.schemas.onboarding import (
+    ClientOnboardingRequest,
+    ClientOnboardingResponse,
+    InventoryLine,
+)
+from app.services import onboarding_service
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -101,3 +107,43 @@ def list_clients(
         )
         for c in clients
     ]
+
+
+# ---------------------------------------------------------------------------
+# Onboarding
+# ---------------------------------------------------------------------------
+
+
+@router.get("/availability", response_model=list[InventoryLine])
+def depot_availability(
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+) -> list[InventoryLine]:
+    """What can be allocated to a new client right now, by equipment type.
+
+    The onboarding wizard reads this so an admin sees the ceiling while they
+    are choosing, instead of finding out on submit. Admin-only for the same
+    reason the client list is: depot stock is not a client's business.
+    """
+    return onboarding_service.warehouse_inventory(db)
+
+
+@router.post(
+    "",
+    response_model=ClientOnboardingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def onboard_client(
+    payload: ClientOnboardingRequest,
+    db: Session = Depends(get_db),
+    ctx: TenantContext = Depends(require_admin),
+) -> ClientOnboardingResponse:
+    """Register a new client: tenant, portal login, sites, and opening fleet.
+
+    One transaction. Either all of it lands or none of it does -- see
+    app/services/onboarding_service.py for why that matters.
+
+    Admin-only, and this one really is admin-only: it mints a login. A client
+    calling it gets 403, not 404, because the route existing is not a secret.
+    """
+    return onboarding_service.onboard_client(db, payload, actor_user_id=ctx.user_id)

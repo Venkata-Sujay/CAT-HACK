@@ -1,20 +1,46 @@
-/** Client (tenant) roster with per-client rollups. */
+/**
+ * Client (tenant) roster with per-client rollups, and the front door for
+ * bringing a new customer on.
+ *
+ * `[Register client]` is here rather than in a settings screen because this is
+ * where somebody already is when they think about a new customer.
+ */
 
+import { useState } from "react";
 import { PageHeader } from "../../components/AppShell";
+import { OnboardClientWizard } from "../../components/OnboardClientWizard";
 import { Card, EmptyState, ErrorState, Spinner, UtilizationBar } from "../../components/ui";
 import { percent } from "../../lib/format";
 import { useClients } from "../../lib/queries";
 
 export function ClientsPage() {
   const { data, isLoading, error, refetch } = useClients();
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   return (
     <div className="p-6">
-      <PageHeader title="Clients" subtitle="Tenants renting equipment, with live rollups" />
+      <PageHeader
+        title="Clients"
+        subtitle="Tenants renting equipment, with live rollups"
+        actions={
+          <button className="btn-primary text-xs py-1.5" onClick={() => setWizardOpen(true)}>
+            + Register client
+          </button>
+        }
+      />
+
+      {wizardOpen && <OnboardClientWizard onClose={() => setWizardOpen(false)} />}
 
       {isLoading && <Card><Spinner label="Loading clients…" /></Card>}
       {error && <Card><ErrorState error={error} onRetry={() => refetch()} /></Card>}
-      {data && data.length === 0 && <Card><EmptyState title="No clients on record" /></Card>}
+      {data && data.length === 0 && (
+        <Card>
+          <EmptyState
+            title="No clients on record"
+            hint="Use Register client to create a tenant, its portal login and its opening fleet."
+          />
+        </Card>
+      )}
 
       {data && data.length > 0 && (
         <>

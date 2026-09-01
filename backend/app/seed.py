@@ -351,6 +351,34 @@ def seed_all(db) -> dict:
     # ------------------------------------------------------------------
     # Live deployment -- 34 of 50 assets out on rental
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # WHERE THE SEEDED FLEET IS IN ITS DAY
+    #
+    # Every deployed machine is placed at the SAME point in the simulated day:
+    # 18:00, twelve hours into an 06:00-20:00 shift. `idle_minutes_today` is
+    # derived as SEED_DAY_MINUTES - runtime, never passed in.
+    #
+    # Late in the shift on purpose. A day is only judgeable once it is mostly
+    # spent -- at 16:00 the scripted EQX1007 anomaly scored +0.0008 against a
+    # 0.0 threshold, i.e. correct but decided by the fourth decimal place. Two
+    # more hours of a machine doing nothing settles it at -0.025, which is a
+    # finding rather than a coin toss. Nothing about the machine changed; the
+    # evidence did.
+    #
+    # This used to be per-asset and inconsistent -- runtime+idle ranged from 70
+    # to 780 minutes across the fleet, which is fifty machines each living in a
+    # different hour of the same day. Nothing surfaced it until the anomaly
+    # model gained `hours_elapsed_today`, at which point half the fleet looked
+    # like it was reporting from another timezone and the scripted EQX1007
+    # anomaly scored just INSIDE normal, because 12 hours of idle is only
+    # damning if you know the day is 16 hours old.
+    #
+    # A demo dataset has to be internally consistent for the same reason
+    # production data does: the model reads the relationships, not the
+    # individual numbers.
+    # ------------------------------------------------------------------
+    SEED_DAY_MINUTES = 18 * 60
+
     # Reserved for scripted demo scenes; excluded from random deployment.
     scripted = {
         "EQX1007",  # Scene 2: the problem-statement anomaly
@@ -375,7 +403,6 @@ def seed_all(db) -> dict:
         operator: Employee | None,
         days_remaining: float,
         runtime_today: int,
-        idle_today: int,
         fuel: float,
         tire: HealthState = HealthState.GOOD,
         engine: HealthState = HealthState.GOOD,
@@ -407,7 +434,8 @@ def seed_all(db) -> dict:
             else (AssetStatus.ACTIVE.value if running else AssetStatus.IDLE.value)
         )
         asset.runtime_minutes_today = runtime_today
-        asset.idle_minutes_today = idle_today
+        # Derived, never supplied: every machine shares one clock.
+        asset.idle_minutes_today = max(0, SEED_DAY_MINUTES - runtime_today)
         asset.continuous_runtime_minutes = continuous
         asset.fuel_level = fuel
         asset.tire_condition = tire.value
@@ -456,8 +484,11 @@ def seed_all(db) -> dict:
         site = rng.choice(work_sites)
         operator = rng.choice(employees[client_code])
 
+        # Twelve hours of shift have passed and the duty cycle runs ~62% of
+        # it, so ~450 minutes of runtime is a normal day at this hour. The
+        # spread is the natural variation between crews and sites.
         running = rng.random() < 0.55
-        runtime = rng.randint(180, 520) if running else rng.randint(30, 240)
+        runtime = int(max(90, min(700, rng.gauss(450, 105))))
         idle = rng.randint(40, 260)
 
         deploy(
@@ -467,7 +498,6 @@ def seed_all(db) -> dict:
             operator=operator,
             days_remaining=rng.uniform(4, 25),
             runtime_today=runtime,
-            idle_today=idle,
             fuel=round(rng.uniform(28, 95), 1),
             tire=HealthState.WARNING if rng.random() < 0.12 else HealthState.GOOD,
             engine=HealthState.WARNING if rng.random() < 0.08 else HealthState.GOOD,
@@ -483,15 +513,20 @@ def seed_all(db) -> dict:
     vrtx = clients["VRTX"]
 
     # Scene 2 -- EQX1007. Straight from the problem statement:
-    # Excavator, NULL site, 0 engine hours, 12 idle hours, NULL operator.
+    # Excavator, NULL site, 0 engine hours, NULL operator.
+    #
+    # Zero runtime against SEED_DAY_MINUTES means sixteen hours idle: on hire,
+    # nobody assigned it anywhere, and it has not turned a track all day. That
+    # trips two rules (UNASSIGNED_EQUIPMENT, UNDERUTILIZED) and the anomaly
+    # model, which is the point -- Scene 2 shows all three agreeing, in
+    # sentences rather than scores.
     deploy(
         asset=by_code["EQX1007"],
         client=acme,
         site=None,            # no site  -> UNASSIGNED_EQUIPMENT
         operator=None,        # no operator -> UNASSIGNED_EQUIPMENT
         days_remaining=6.0,
-        runtime_today=0,      # zero runtime -> UNDERUTILIZED
-        idle_today=720,       # 12h idle
+        runtime_today=0,      # -> 16h idle, UNDERUTILIZED + ML anomaly
         fuel=41.0,
         running=False,
     )
@@ -506,7 +541,6 @@ def seed_all(db) -> dict:
         operator=acme_ops[0],
         days_remaining=11.0,
         runtime_today=395,
-        idle_today=85,
         fuel=63.5,
         running=True,
         continuous=120,
@@ -521,7 +555,6 @@ def seed_all(db) -> dict:
         operator=employees["NSTAR"][0],
         days_remaining=-3.2,
         runtime_today=210,
-        idle_today=180,
         fuel=52.0,
         running=False,
     )
@@ -534,7 +567,6 @@ def seed_all(db) -> dict:
         operator=employees["VRTX"][0],
         days_remaining=1.3,
         runtime_today=330,
-        idle_today=120,
         fuel=71.0,
         running=True,
         continuous=90,
@@ -548,7 +580,6 @@ def seed_all(db) -> dict:
         operator=employees["NSTAR"][1],
         days_remaining=9.0,
         runtime_today=410,
-        idle_today=70,
         fuel=44.0,
         engine=HealthState.CRITICAL,
         running=True,
@@ -563,7 +594,6 @@ def seed_all(db) -> dict:
         operator=acme_ops[1],
         days_remaining=14.0,
         runtime_today=470,
-        idle_today=30,
         fuel=38.0,
         running=True,
         continuous=450,
@@ -577,7 +607,6 @@ def seed_all(db) -> dict:
         operator=employees["VRTX"][1],
         days_remaining=7.0,
         runtime_today=360,
-        idle_today=110,
         fuel=12.5,
         tire=HealthState.CRITICAL,
         running=True,

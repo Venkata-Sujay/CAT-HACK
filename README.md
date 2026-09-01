@@ -111,8 +111,27 @@ Run `python ml/evaluate_models.py` for the full report.
 
 | Model | Result |
 |---|---|
-| IsolationForest (anomaly) | 81.6% detection at 3.0% false-positive rate; precision 58%, recall 82% |
-| HistGradientBoosting (demand) | **beats the 7-day rolling-mean baseline by 27.6% MAE** (0.504 vs 0.697) |
+| IsolationForest (anomaly) | **77.0% recall at a 3.0% false-positive rate**; precision 57% |
+| HistGradientBoosting (demand) | **beats the 7-day rolling-mean baseline by 27.2% MAE** (0.454 vs 0.623) |
+
+Anomaly recall is reported **per failure mode**, because one aggregate hides the
+only useful question — which failures does it actually catch?
+
+| Failure mode | Recall |
+|---|---|
+| Lost asset (no site, no telemetry) | **100%** |
+| Overuse (running through the night) | **100%** |
+| Hard failure (degraded parts, collapsed output) | **96%** |
+| Dead asset (on hire, producing nothing) | **67%** |
+| Unassigned asset (on hire, no site, still reporting) | **53%** |
+| Fuel anomaly (near-empty against little work) | **46%** |
+
+An unauthorized operator — a single boolean flip — was detected **0 times out of
+96**. IsolationForest measures how easily a point is separated by random
+axis-aligned splits, so a row extreme on one of fourteen features barely moves
+its score. That is not a defect to hide: it is the measured reason the rule
+engine owns single-signal conditions and the model owns the combinations no
+threshold describes.
 
 Validation is **time-aware** — trained on the earliest 80% of the timeline, tested on
 the most recent 20%. Shuffling a time series would leak the future and inflate the
@@ -190,7 +209,7 @@ backend/
   app/
     core/       auth, tenant scoping (deps.py = the security boundary)
     models/     12 SQLAlchemy tables
-    routes/     35 REST endpoints across 11 routers
+    routes/     37 REST endpoints across 11 routers
     services/   rule engine, rentals, alerts, telemetry, dashboards, recommendations
     ml/         inference + explainability (features shared with training)
     simulator/  telemetry state machine

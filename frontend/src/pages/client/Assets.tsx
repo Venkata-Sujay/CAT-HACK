@@ -1,6 +1,7 @@
 /** Client asset list -- filterable view of the tenant's own equipment. */
 
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "../../components/AppShell";
 import { AssetDetailDrawer } from "../../components/AssetDetailDrawer";
 import { AssetFilters, AssetTable } from "../../components/AssetTable";
@@ -9,8 +10,10 @@ import { useAssets, useSites } from "../../lib/queries";
 import type { ProductType } from "../../lib/types";
 
 export function ClientAssets() {
+  // The overview's equipment strip deep-links here with ?type=<PRODUCT_TYPE>.
+  const [searchParams, setSearchParams] = useSearchParams();
   const [status, setStatus] = useState("");
-  const [productType, setProductType] = useState("");
+  const [productType, setProductType] = useState(searchParams.get("type") ?? "");
   const [siteId, setSiteId] = useState("");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<number | null>(null);
@@ -25,13 +28,16 @@ export function ClientAssets() {
 
   return (
     <div className="p-6">
-      <PageHeader title="My assets" subtitle="Equipment currently rented to your organisation" />
+      <PageHeader title="My equipment" subtitle="Machines currently on hire to your organisation" />
 
       <AssetFilters
         status={status}
         onStatus={setStatus}
         productType={productType}
-        onProductType={setProductType}
+        onProductType={(value) => {
+          setProductType(value);
+          setSearchParams(value ? { type: value } : {});
+        }}
         siteId={siteId}
         onSiteId={setSiteId}
         search={search}

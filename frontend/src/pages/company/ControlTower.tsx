@@ -1,11 +1,16 @@
 /**
  * Company control tower.
  *
- * The layout answers four questions top to bottom:
- *   KPI row      -> WHAT IS HAPPENING?
- *   map + queue  -> WHAT IS WRONG?
- *   charts       -> WHAT WILL HAPPEN NEXT?
- *   queue action -> WHAT SHOULD I DO?
+ * The layout answers four questions top to bottom, and a first-time viewer
+ * should be able to follow them without being told:
+ *
+ *   KPI row        -> WHAT IS HAPPENING?      four figures, no truncated labels
+ *   fleet strip    -> WHAT DO WE HAVE?        the machines themselves
+ *   map + queue    -> WHAT IS WRONG?          located, then triaged
+ *   charts         -> WHAT HAPPENS NEXT?
+ *
+ * The eight-across KPI row this replaced truncated every label past the fourth
+ * tile, so the top of the most important screen read as gibberish.
  */
 
 import { useNavigate } from "react-router-dom";
@@ -14,52 +19,97 @@ import { PageHeader } from "../../components/AppShell";
 import { AlertCard } from "../../components/AlertCard";
 import { AssetDetailDrawer } from "../../components/AssetDetailDrawer";
 import { FleetCompositionChart, UtilizationTrendChart } from "../../components/Charts";
+import { FleetStrip } from "../../components/FleetStrip";
 import { KpiCard } from "../../components/KpiCard";
 import { SiteMap } from "../../components/SiteMap";
 import { Card, EmptyState, ErrorState, SectionHeader, Spinner } from "../../components/ui";
-import { percent, productTypeLabel } from "../../lib/format";
+import { alertTypeLabel, percent, productTypeLabel } from "../../lib/format";
 import { useCompanyDashboard, useSimulatorControl, useSimulatorStatus } from "../../lib/queries";
+import type { Alert } from "../../lib/types";
 
 export function ControlTower() {
   const { data, isLoading, error, refetch } = useCompanyDashboard();
   const [selectedAsset, setSelectedAsset] = useState<number | null>(null);
   const navigate = useNavigate();
 
-  if (isLoading) return <div className="p-6"><Spinner label="Loading control tower…" /></div>;
-  if (error) return <div className="p-6"><ErrorState error={error} onRetry={() => refetch()} /></div>;
+  if (isLoading)
+    return (
+      <div className="p-6">
+        <Spinner label="Loading control tower…" />
+      </div>
+    );
+  if (error)
+    return (
+      <div className="p-6">
+        <ErrorState error={error} onRetry={() => refetch()} />
+      </div>
+    );
   if (!data) return null;
 
   const { kpis, sites, action_queue, utilization_trend, by_product_type, forecasts } = data;
-  const shortfalls = forecasts.filter((f) => f.expected_shortfall > 0.5);
+  const shortfalls = forecasts
+    .filter((f) => f.expected_shortfall > 0.5)
+    .sort((a, b) => a.horizon_days - b.horizon_days || b.expected_shortfall - a.expected_shortfall);
+
+  // The queue is dominated by a handful of repeated alert types, so a summary
+  // strip above it stops "37 red cards" reading as one undifferentiated wall.
+  const queueByType = summariseQueue(action_queue);
+  const attention = kpis.critical_alerts + kpis.overdue;
 
   return (
     <div className="p-6">
       <PageHeader
         title="Control Tower"
-        subtitle="Fleet-wide operational picture across all clients and sites"
+        subtitle="Live picture of every machine, across every client and site"
         actions={<SimulatorControls />}
       />
 
       {/* ---- WHAT IS HAPPENING ---- */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 mb-5">
-        <KpiCard label="Total fleet" value={kpis.total_fleet} />
-        <KpiCard label="Rented out" value={kpis.rented} tone="info" />
-        <KpiCard label="Active now" value={kpis.active} tone="ok" />
-        <KpiCard label="Idle" value={kpis.idle} tone="default" />
-        <KpiCard label="In warehouse" value={kpis.in_warehouse} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
         <KpiCard
-          label="Overdue"
-          value={kpis.overdue}
-          tone={kpis.overdue > 0 ? "danger" : "default"}
-          onClick={() => navigate("/company/rentals")}
+          label="Fleet"
+          value={kpis.total_fleet}
+          breakdown={[
+            { label: "on hire", value: kpis.rented, tone: "info" },
+            { label: "in depot", value: kpis.in_warehouse },
+            { label: "in workshop", value: kpis.maintenance, tone: "warn" },
+          ]}
         />
         <KpiCard
-          label="Critical alerts"
-          value={kpis.critical_alerts}
-          tone={kpis.critical_alerts > 0 ? "danger" : "ok"}
+          label="Working right now"
+          value={kpis.active}
+          tone="ok"
+          breakdown={[
+            { label: "engines running", value: kpis.active, tone: "ok" },
+            { label: "on site but idle", value: kpis.idle },
+          ]}
+        />
+        <KpiCard
+          label="Needs attention"
+          value={attention}
+          tone={attention > 0 ? "danger" : "ok"}
           onClick={() => navigate("/company/alerts")}
+          breakdown={[
+            { label: "urgent alerts (high + critical)", value: kpis.critical_alerts, tone: "danger" },
+            { label: "overdue returns", value: kpis.overdue, tone: "danger" },
+          ]}
         />
-        <KpiCard label="Avg utilization" value={percent(kpis.avg_utilization)} tone="accent" />
+        <KpiCard
+          label="Fleet utilization"
+          value={percent(kpis.avg_utilization)}
+          tone="accent"
+          breakdown={[{ label: "engine time ÷ time on site, today", value: "" }]}
+        />
+      </div>
+
+      {/* ---- WHAT DO WE HAVE ---- */}
+      <div className="mb-5">
+        <div className="flex items-center gap-2 mb-2.5">
+          <h2 className="label text-[11px]">Equipment classes</h2>
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-2xs text-faint">click a class to filter the fleet</span>
+        </div>
+        <FleetStrip stats={by_product_type} />
       </div>
 
       {/* ---- WHAT IS WRONG ---- */}
@@ -67,8 +117,8 @@ export function ControlTower() {
         <Card className="xl:col-span-2" padded={false}>
           <div className="p-4 pb-3">
             <SectionHeader
-              title="Site map"
-              subtitle={`${sites.length} locations · marker shows deployed assets, red badge shows open anomalies`}
+              title="Where the fleet is"
+              subtitle={`${sites.length} locations · the number on a marker is machines on site, the red badge is open anomalies`}
               action={
                 <button onClick={() => navigate("/company/map")} className="btn-ghost text-xs py-1">
                   Expand →
@@ -85,19 +135,37 @@ export function ControlTower() {
           </div>
         </Card>
 
-        <Card padded={false} className="flex flex-col max-h-[460px]">
-          <div className="p-4 pb-3 shrink-0">
+        <Card padded={false} className="flex flex-col max-h-[494px] rail rail-danger">
+          <div className="p-4 pl-5 pb-3 shrink-0">
             <SectionHeader
               title="Action queue"
-              subtitle="Highest severity first"
+              subtitle="Most severe first"
               action={
-                <button onClick={() => navigate("/company/alerts")} className="btn-ghost text-xs py-1">
+                <button
+                  onClick={() => navigate("/company/alerts")}
+                  className="btn-ghost text-xs py-1"
+                >
                   All →
                 </button>
               }
             />
+            {queueByType.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {queueByType.map((group) => (
+                  <button
+                    key={group.type}
+                    onClick={() => navigate(`/company/alerts?type=${group.type}`)}
+                    className="chip bg-elevated text-muted border border-border normal-case
+                               tracking-normal hover:border-accent/50 hover:text-ink transition-colors"
+                  >
+                    <span className="tnum font-semibold text-ink">{group.count}</span>
+                    {alertTypeLabel(group.type)}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
+          <div className="flex-1 overflow-y-auto px-4 pl-5 pb-4 space-y-2">
             {action_queue.length === 0 ? (
               <EmptyState title="Nothing needs attention" hint="No open alerts across the fleet." />
             ) : (
@@ -111,14 +179,17 @@ export function ControlTower() {
         </Card>
       </div>
 
-      {/* ---- WHAT WILL HAPPEN NEXT ---- */}
+      {/* ---- WHAT HAPPENS NEXT ---- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card>
           <SectionHeader title="Fleet utilization" subtitle="Last 24 hours" />
           {utilization_trend.length > 0 ? (
             <UtilizationTrendChart data={utilization_trend} />
           ) : (
-            <EmptyState title="No telemetry yet" hint="Start the simulator to populate this chart." />
+            <EmptyState
+              title="No telemetry yet"
+              hint="Start the simulator to populate this chart."
+            />
           )}
         </Card>
 
@@ -130,8 +201,8 @@ export function ControlTower() {
         <Card padded={false} className="flex flex-col">
           <div className="p-4 pb-3">
             <SectionHeader
-              title="Forecast shortfalls"
-              subtitle="Predicted demand exceeding available stock"
+              title="Coming up short"
+              subtitle="Sites where forecast demand beats stock, soonest first"
               action={
                 <button
                   onClick={() => navigate("/company/forecasting")}
@@ -151,15 +222,19 @@ export function ControlTower() {
             ) : (
               <div className="space-y-2">
                 {shortfalls.slice(0, 6).map((forecast) => (
-                  <div
+                  <button
                     key={forecast.id}
-                    className="flex items-center justify-between gap-3 bg-base border border-border rounded-md px-3 py-2"
+                    onClick={() => navigate("/company/forecasting")}
+                    className="w-full flex items-center gap-3 bg-base border border-border rounded-lg
+                               px-2.5 py-2 hover:border-accent/40 transition-colors text-left"
                   >
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="text-xs font-medium text-ink truncate">
                         {productTypeLabel(forecast.product_type)}
                       </div>
-                      <div className="text-2xs text-faint">{forecast.site_code}</div>
+                      <div className="text-2xs text-faint">
+                        {forecast.site_code} · in {forecast.horizon_days}d
+                      </div>
                     </div>
                     <div className="text-right shrink-0">
                       <div className="text-xs text-danger font-semibold tnum">
@@ -170,7 +245,7 @@ export function ControlTower() {
                         {forecast.currently_available}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -181,6 +256,15 @@ export function ControlTower() {
       <AssetDetailDrawer assetId={selectedAsset} onClose={() => setSelectedAsset(null)} />
     </div>
   );
+}
+
+function summariseQueue(queue: Alert[]): { type: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const alert of queue) counts.set(alert.type, (counts.get(alert.type) ?? 0) + 1);
+  return [...counts.entries()]
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
 }
 
 /**

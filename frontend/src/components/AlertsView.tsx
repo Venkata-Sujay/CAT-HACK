@@ -6,6 +6,7 @@
  */
 
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AlertCard } from "./AlertCard";
 import { Card, EmptyState, ErrorState, Spinner, Toggle } from "./ui";
 import { SEVERITY_RANK } from "../lib/format";
@@ -24,7 +25,10 @@ const SEVERITY_HEADING: Record<AlertSeverity, string> = {
 
 export function AlertsView({ onOpenAsset }: { onOpenAsset?: (assetId: number) => void }) {
   const [severity, setSeverity] = useState<AlertSeverity | "">("");
-  const [typeFilter, setTypeFilter] = useState("");
+  // The control tower's queue-summary chips deep-link here with ?type=<TYPE>,
+  // so clicking "5 ML Anomaly" lands on exactly those five.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [typeFilter, setTypeFilter] = useState(searchParams.get("type") ?? "");
   const [includeResolved, setIncludeResolved] = useState(false);
 
   const { data, isLoading, error, refetch } = useAlerts({
@@ -59,7 +63,14 @@ export function AlertsView({ onOpenAsset }: { onOpenAsset?: (assetId: number) =>
           ))}
         </select>
 
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={selectClass}>
+        <select
+          value={typeFilter}
+          onChange={(e) => {
+            setTypeFilter(e.target.value);
+            setSearchParams(e.target.value ? { type: e.target.value } : {});
+          }}
+          className={selectClass}
+        >
           <option value="">All types</option>
           <option value="UNAUTHORIZED_OPERATOR">Unauthorized operator</option>
           <option value="UNASSIGNED_EQUIPMENT">Unassigned equipment</option>

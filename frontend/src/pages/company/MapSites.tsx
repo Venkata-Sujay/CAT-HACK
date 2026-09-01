@@ -36,9 +36,12 @@ export function MapSites() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2">
+          {/* Wheel zoom is ON here and OFF on the embedded control-tower map:
+              this page is the map, so the wheel belongs to it. */}
           <SiteMap
             sites={sites ?? []}
             height={560}
+            scrollWheelZoom
             onSelectSite={(siteId) => navigate(`/company/fleet?site=${siteId}`)}
           />
         </div>

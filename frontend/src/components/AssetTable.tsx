@@ -14,6 +14,7 @@ import {
   UtilizationBar,
 } from "./ui";
 import { formatDue, minutesToHours, productTypeLabel } from "../lib/format";
+import { equipmentImage } from "../lib/equipment";
 import type { Asset } from "../lib/types";
 
 export function AssetTable({
@@ -64,7 +65,17 @@ export function AssetTable({
                 </div>
               </td>
 
-              <td className="td text-muted">{productTypeLabel(asset.product_type)}</td>
+              <td className="td text-muted">
+                <span className="inline-flex items-center gap-2">
+                  <img
+                    src={equipmentImage(asset.product_type, "thumb")}
+                    alt=""
+                    loading="lazy"
+                    className="w-9 h-6 rounded object-cover shrink-0 border border-border/60"
+                  />
+                  {productTypeLabel(asset.product_type)}
+                </span>
+              </td>
 
               {showClient && (
                 <td className="td text-muted max-w-[150px] truncate">{asset.client_name ?? "—"}</td>

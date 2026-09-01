@@ -71,6 +71,8 @@ def main() -> int:
     normal = df[df["is_anomaly"] == 0].copy()
     print(f"  training on {len(normal):,} normal rows ({len(df) - len(normal):,} anomalies withheld)")
 
+    # anomaly_mode is evaluation metadata; ANOMALY_FEATURES excludes it, so
+    # the model never sees a label.
     X = normal[ANOMALY_FEATURES].to_numpy(dtype=float)
 
     scaler = StandardScaler()
@@ -114,6 +116,7 @@ def main() -> int:
     alert_threshold = 0.0
     detection_rate = None
     false_positive_rate = None
+    mode_recall: dict[str, dict] = {}
     severity_bands = {"high": -0.06, "medium": -0.02}
 
     if len(held_out) > 0:
@@ -138,6 +141,36 @@ def main() -> int:
         print(f"  severity bands: HIGH < {severity_bands['high']:+.3f}, "
               f"MEDIUM < {severity_bands['medium']:+.3f}")
 
+        # ---- recall PER FAILURE MODE -------------------------------------
+        #
+        # A single detection-rate number hides the most useful thing the
+        # evaluation can tell you: WHICH failures this model catches.
+        # IsolationForest measures how easily a point is isolated by random
+        # axis-aligned splits, so a row that is extreme on ONE of thirteen
+        # features barely moves its average path length -- the deviation is
+        # diluted by the twelve ordinary ones. Multi-feature failures, where
+        # several values move together, isolate easily.
+        #
+        # That is not a defect to hide; it is the measured justification for
+        # the hybrid design. Single-signal conditions belong to the rule
+        # engine, which catches them with certainty. The model earns the
+        # combinations no threshold describes.
+        if "anomaly_mode" in held_out.columns:
+            print()
+            print("  recall by failure mode (what this model is and is not good at):")
+            flagged = anomaly_scores < alert_threshold
+            modes = held_out["anomaly_mode"].to_numpy()
+            for mode in sorted(set(modes)):
+                sel = modes == mode
+                n = int(sel.sum())
+                if n == 0:
+                    continue
+                rate = float(flagged[sel].mean())
+                mode_recall[mode] = {"n": n, "recall": round(rate, 4)}
+                bar = "#" * int(round(rate * 20))
+                print(f"    {mode:18} {rate:6.1%}  n={n:4}  {bar}")
+
+
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     metadata = {
         "model_version": MODEL_VERSION,
@@ -157,7 +190,13 @@ def main() -> int:
             "held_out_detection_rate": detection_rate,
             "false_positive_rate": false_positive_rate,
             "alert_threshold": alert_threshold,
+            "recall_by_failure_mode": mode_recall,
         },
+        "scoring_window_note": (
+            "Assets are only scored once at least MIN_SCORING_HOURS of their day has "
+            "elapsed (see backend/app/ml/anomaly.py). Before that a stopped machine and "
+            "a dead machine are indistinguishable, and scoring anyway flags the fleet."
+        ),
         "data_note": (
             "Trained on SYNTHETIC data from ml/generate_training_data.py. "
             "Metrics measure fit to that generator, not real-world performance."

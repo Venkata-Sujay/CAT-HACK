@@ -76,12 +76,23 @@ def _describe_deviation(name: str, value: float, median: float, iqr: float) -> s
     return f"{label.capitalize()} is unusually low ({value:.0f} vs typical {median:.0f})"
 
 
+# Feature pairs that describe the SAME finding in two ways. When both deviate,
+# only the stronger one is shown -- three reasons that are really one reason
+# read as padding, and padding is how an explanation loses a reader's trust.
+REDUNDANT_WITH = {
+    "utilization": "shift_utilization",
+    "shift_utilization": "utilization",
+    "runtime_minutes_today": "shift_utilization",
+    "idle_minutes_today": "utilization",
+}
+
+
 def explain(features: dict[str, float], stats: dict, top_n: int = 3) -> list[str]:
     """Top-N feature deviations, rendered as natural language."""
     medians = stats.get("median", {})
     iqrs = stats.get("iqr", {})
 
-    scored: list[tuple[float, str]] = []
+    scored: list[tuple[float, str, str]] = []
     for name in ANOMALY_FEATURES:
         value = features.get(name, 0.0)
         median = medians.get(name, 0.0)
@@ -100,10 +111,20 @@ def explain(features: dict[str, float], stats: dict, top_n: int = 3) -> list[str
         if deviation > 1.0:
             sentence = _describe_deviation(name, value, median, iqr)
             if sentence:
-                scored.append((deviation, sentence))
+                scored.append((deviation, sentence, name))
 
-    scored.sort(key=lambda pair: pair[0], reverse=True)
-    return [sentence for _, sentence in scored[:top_n]]
+    scored.sort(key=lambda item: item[0], reverse=True)
+
+    chosen: list[str] = []
+    used: set[str] = set()
+    for _deviation, sentence, name in scored:
+        if REDUNDANT_WITH.get(name) in used:
+            continue
+        chosen.append(sentence)
+        used.add(name)
+        if len(chosen) == top_n:
+            break
+    return chosen
 
 
 def classify(features: dict[str, float], reasons: list[str]) -> tuple[AlertType, str]:
@@ -145,8 +166,27 @@ def _alert_threshold() -> float:
     return float(value) if value is not None else settings.ANOMALY_ALERT_THRESHOLD
 
 
+# Hours into the machine's day before its behaviour is judged at all. The
+# shift starts at 06:00, so this is two hours into actual work.
+#
+# Zero runtime at 03:00 is a machine that has not started. Zero runtime at
+# 18:00 is a machine nobody is using. Only the second is an anomaly, and no
+# amount of density estimation separates them from a feature vector that spans
+# the whole day -- measured "dead asset" recall across hours 0-24 was 32%.
+#
+# So the model is only ASKED the question once it is answerable. The training
+# generator applies the identical floor (MIN_SCORING_HOURS in
+# ml/generate_training_data.py); changing one without the other reintroduces
+# exactly the train/serve skew this was added to remove.
+MIN_SCORING_HOURS = 8.0
+
+
 def score_asset(asset: Asset) -> dict | None:
-    """Score one asset. Returns None when no model is loaded."""
+    """Score one asset.
+
+    Returns None when no model is loaded, or when too little of the machine's
+    day has elapsed for its duty cycle to mean anything yet.
+    """
     if not model_registry.anomaly_ready:
         return None
 
@@ -156,6 +196,10 @@ def score_asset(asset: Asset) -> dict | None:
     stats = bundle.get("stats", {})
 
     features = asset_to_features(asset)
+
+    if features.get("hours_elapsed_today", 0.0) < MIN_SCORING_HOURS:
+        return None
+
     row = [features_to_row(features)]
 
     if scaler is not None:
@@ -192,12 +236,31 @@ def _severity_for(score: float) -> AlertSeverity:
     return AlertSeverity.LOW
 
 
+# Fraction of the scored fleet above which a sweep is treated as a MODEL
+# problem rather than a fleet problem.
+#
+# The model is calibrated to a 3% false-positive rate. If a single sweep says a
+# third of every machine on hire is behaving abnormally, the likelier
+# explanation by far is that the fleet has moved somewhere the model was not
+# trained -- a shift boundary, a counter rollover, a simulator parameter
+# change -- not that thirty machines broke in the same ten seconds.
+#
+# So the sweep is discarded and the reason is logged loudly. The rule engine is
+# unaffected and keeps firing throughout, which is the point of splitting them:
+# the deterministic layer never goes quiet just because the probabilistic one
+# lost its footing.
+ALERT_STORM_FRACTION = 0.40
+
+
 def evaluate_fleet(db: Session, commit: bool = True) -> dict:
     """Score every deployed asset and raise/clear ML_ANOMALY alerts.
 
     Rules own the deterministic conditions (unauthorized operator, low fuel,
     overdue...). This pass exists to catch unusual COMBINATIONS that no single
     threshold would flag.
+
+    Runs in two phases so the storm guard above can see the whole picture
+    before anything is written.
     """
     if not model_registry.anomaly_ready:
         return {"scored": 0, "anomalies": 0, "skipped": "anomaly model not loaded"}
@@ -212,16 +275,41 @@ def evaluate_fleet(db: Session, commit: bool = True) -> dict:
     )
     assets = db.execute(select(Asset).where(Asset.status.in_(deployed))).scalars().all()
 
-    anomalies = 0
+    # ---- phase 1: score everything, write nothing ------------------------
+    scored: list[tuple[Asset, dict]] = []
     for asset in assets:
         try:
             result = score_asset(asset)
         except Exception:  # noqa: BLE001 - never let scoring break the sweep
             logger.exception("Anomaly scoring failed for %s", asset.asset_code)
             continue
-        if result is None:
-            continue
+        if result is not None:
+            scored.append((asset, result))
 
+    flagged = sum(1 for _, r in scored if r["is_anomaly"])
+    if scored and flagged / len(scored) > ALERT_STORM_FRACTION:
+        logger.warning(
+            "ML sweep SUPPRESSED: %d of %d scored assets flagged (%.0f%%, limit %.0f%%). "
+            "A fleet-wide flag rate this far above the model's 3%% calibrated "
+            "false-positive rate indicates distribution drift, not %d simultaneous "
+            "faults. Rule-based alerting is unaffected.",
+            flagged,
+            len(scored),
+            100 * flagged / len(scored),
+            100 * ALERT_STORM_FRACTION,
+            flagged,
+        )
+        return {
+            "scored": len(scored),
+            "anomalies": 0,
+            "suppressed": True,
+            "would_have_flagged": flagged,
+            "reason": "flag rate above storm threshold -- suspected distribution drift",
+        }
+
+    # ---- phase 2: raise and clear ----------------------------------------
+    anomalies = 0
+    for asset, result in scored:
         if not result["is_anomaly"]:
             auto_resolve(
                 db,

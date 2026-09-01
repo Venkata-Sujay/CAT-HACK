@@ -13,6 +13,7 @@ import { AlertCard } from "../../components/AlertCard";
 import { AssetDetailDrawer } from "../../components/AssetDetailDrawer";
 import { AssetTable } from "../../components/AssetTable";
 import { RuntimeIdleChart, UtilizationTrendChart } from "../../components/Charts";
+import { FleetStrip } from "../../components/FleetStrip";
 import { KpiCard } from "../../components/KpiCard";
 import { RecommendationCard } from "../../components/RecommendationCard";
 import { Card, EmptyState, ErrorState, SectionHeader, Spinner } from "../../components/ui";
@@ -30,7 +31,7 @@ export function ClientOverview() {
   if (error) return <div className="p-6"><ErrorState error={error} onRetry={() => refetch()} /></div>;
   if (!data) return null;
 
-  const { kpis, assets, alerts, utilization_trend, recommendations } = data;
+  const { kpis, assets, alerts, utilization_trend, recommendations, by_product_type } = data;
   const topRecommendation = recommendations.find((r) => r.status === "OPEN");
 
   return (
@@ -40,28 +41,48 @@ export function ClientOverview() {
         subtitle="Equipment currently rented to your organisation"
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
-        <KpiCard label="Active" value={kpis.active_assets} tone="ok" />
-        <KpiCard label="Idle" value={kpis.idle_assets} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
         <KpiCard
-          label="Due soon"
-          value={kpis.due_soon}
-          tone={kpis.due_soon > 0 ? "warn" : "default"}
-          hint="Within 48 hours"
+          label="My equipment"
+          value={kpis.total_assets}
+          breakdown={[
+            { label: "working now", value: kpis.active_assets, tone: "ok" },
+            { label: "on site, idle", value: kpis.idle_assets },
+          ]}
         />
         <KpiCard
-          label="Overdue"
-          value={kpis.overdue}
-          tone={kpis.overdue > 0 ? "danger" : "default"}
+          label="Returns coming up"
+          value={kpis.due_soon + kpis.overdue}
+          tone={kpis.overdue > 0 ? "danger" : kpis.due_soon > 0 ? "warn" : "default"}
+          breakdown={[
+            { label: "due within 48h", value: kpis.due_soon, tone: "warn" },
+            { label: "already overdue", value: kpis.overdue, tone: "danger" },
+          ]}
         />
         <KpiCard
-          label="Critical alerts"
+          label="Needs attention"
           value={kpis.critical_alerts}
           tone={kpis.critical_alerts > 0 ? "danger" : "ok"}
           onClick={() => navigate("/client/alerts")}
+          breakdown={[{ label: "high and critical alerts on your machines", value: "" }]}
         />
-        <KpiCard label="Avg utilization" value={percent(kpis.avg_utilization)} tone="accent" />
+        <KpiCard
+          label="Fleet utilization"
+          value={percent(kpis.avg_utilization)}
+          tone="accent"
+          breakdown={[{ label: "engine time ÷ time on site, today", value: "" }]}
+        />
       </div>
+
+      {by_product_type.length > 0 && (
+        <div className="mb-5">
+          <div className="flex items-center gap-2 mb-2.5">
+            <h2 className="label text-[11px]">What you have on hire</h2>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          <FleetStrip stats={by_product_type} basePath="/client/assets" />
+        </div>
+      )}
 
       {topRecommendation && (
         <div className="mb-5">

@@ -1,7 +1,7 @@
 {
   "model_version": "anomaly-iforest-v1",
   "model_type": "IsolationForest",
-  "trained_at": "2026-09-01T08:37:27.911822+00:00",
+  "trained_at": "2026-09-01T20:46:15.393448+00:00",
   "training_rows": 11414,
   "total_rows_available": 12000,
   "feature_list": [
@@ -16,20 +16,49 @@
     "operator_match",
     "site_assignment_present",
     "rental_active",
-    "hours_since_last_seen"
+    "hours_since_last_seen",
+    "hours_elapsed_today",
+    "shift_utilization"
   ],
   "contamination": 0.03,
   "n_estimators": 250,
   "random_state": 42,
   "alert_threshold": 0.0,
   "severity_bands": {
-    "high": -0.06897315255076233,
-    "medium": -0.019036961258426688
+    "high": -0.06333377122122119,
+    "medium": -0.020432851238320837
   },
   "metrics": {
-    "held_out_detection_rate": 0.8156996587030717,
+    "held_out_detection_rate": 0.7696245733788396,
     "false_positive_rate": 0.030050814788855792,
-    "alert_threshold": 0.0
+    "alert_threshold": 0.0,
+    "recall_by_failure_mode": {
+      "dead_asset": {
+        "n": 95,
+        "recall": 0.6737
+      },
+      "fuel_anomaly": {
+        "n": 101,
+        "recall": 0.4554
+      },
+      "hard_failure": {
+        "n": 112,
+        "recall": 0.9643
+      },
+      "lost_asset": {
+        "n": 75,
+        "recall": 1.0
+      },
+      "overuse": {
+        "n": 107,
+        "recall": 1.0
+      },
+      "unassigned_asset": {
+        "n": 96,
+        "recall": 0.5312
+      }
+    }
   },
+  "scoring_window_note": "Assets are only scored once at least MIN_SCORING_HOURS of their day has elapsed (see backend/app/ml/anomaly.py). Before that a stopped machine and a dead machine are indistinguishable, and scoring anyway flags the fleet.",
   "data_note": "Trained on SYNTHETIC data from ml/generate_training_data.py. Metrics measure fit to that generator, not real-world performance."
 }

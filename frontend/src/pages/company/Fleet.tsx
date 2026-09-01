@@ -10,11 +10,12 @@ import { useAssets, useSites } from "../../lib/queries";
 import type { ProductType } from "../../lib/types";
 
 export function Fleet() {
-  // The control-tower map deep-links here with ?site=<id>, so the site filter
-  // initialises from the URL.
+  // Two deep links land here: the control-tower map sends ?site=<id>, and the
+  // equipment strip sends ?type=<PRODUCT_TYPE>. Both filters initialise from
+  // the URL so the destination arrives already narrowed.
   const [searchParams, setSearchParams] = useSearchParams();
   const [status, setStatus] = useState("");
-  const [productType, setProductType] = useState("");
+  const [productType, setProductType] = useState(searchParams.get("type") ?? "");
   const [siteId, setSiteId] = useState(searchParams.get("site") ?? "");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<number | null>(null);
@@ -27,10 +28,24 @@ export function Fleet() {
   });
   const { data: sites } = useSites();
 
+  /** Keep the URL in step with the filters so a view stays shareable. */
+  const syncUrl = (next: { site?: string; type?: string }) => {
+    const params: Record<string, string> = {};
+    const site = next.site ?? siteId;
+    const type = next.type ?? productType;
+    if (site) params.site = site;
+    if (type) params.type = type;
+    setSearchParams(params);
+  };
+
   const handleSiteChange = (value: string) => {
     setSiteId(value);
-    if (value) setSearchParams({ site: value });
-    else setSearchParams({});
+    syncUrl({ site: value });
+  };
+
+  const handleTypeChange = (value: string) => {
+    setProductType(value);
+    syncUrl({ type: value });
   };
 
   return (
@@ -41,7 +56,7 @@ export function Fleet() {
         status={status}
         onStatus={setStatus}
         productType={productType}
-        onProductType={setProductType}
+        onProductType={handleTypeChange}
         siteId={siteId}
         onSiteId={handleSiteChange}
         search={search}

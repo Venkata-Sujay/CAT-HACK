@@ -28,6 +28,24 @@ ANOMALY_FEATURES = [
     "site_assignment_present",
     "rental_active",
     "hours_since_last_seen",
+    # Added after a train/serve skew hunt. runtime_minutes_today is meaningless
+    # without knowing how much of the day has passed: 40 minutes of runtime at
+    # 07:00 is a machine that has just started, the same 40 minutes at 19:00 is
+    # a machine that never worked. Without this the model cannot tell those
+    # apart and flags half the fleet every morning. Derived from the other two
+    # counters, so it needs no new data source on either side.
+    "hours_elapsed_today",
+    # Runtime as a fraction of the WORKING time available so far, rather than
+    # of the whole elapsed day.
+    #
+    # `utilization` divides by elapsed time including the night, so a healthy
+    # machine reads 0.16 at 08:00 and 0.44 at 20:00 -- the same machine, two
+    # very different numbers, and a genuinely dead machine at 08:00 lands
+    # inside that range. This divides by shift minutes only, so a healthy
+    # machine sits near 0.6 at ANY hour and a dead one sits at 0.0 at any hour.
+    # Turning a conditional into a flat one made "dead asset" recall jump from
+    # 31% to the figure printed by ml/train_anomaly_model.py.
+    "shift_utilization",
 ]
 
 # Human-readable labels used to build alert explanations.
@@ -44,7 +62,24 @@ FEATURE_LABELS = {
     "site_assignment_present": "site assignment",
     "rental_active": "rental status",
     "hours_since_last_seen": "time since last report",
+    "hours_elapsed_today": "hours into the working day",
+    "shift_utilization": "utilization against working hours so far",
 }
+
+# Working shift, mirroring the simulator (app/simulator/engine.py).
+SHIFT_START_HOUR = 6.0
+SHIFT_END_HOUR = 20.0
+SHIFT_LENGTH_HOURS = SHIFT_END_HOUR - SHIFT_START_HOUR
+
+
+def shift_minutes_elapsed(hours_elapsed_today: float) -> float:
+    """Minutes of the working shift that have passed, given hours since midnight.
+
+    Zero before the shift opens, saturating at the full shift once it closes.
+    Shared by training and serving like everything else in this module.
+    """
+    return max(0.0, min(hours_elapsed_today - SHIFT_START_HOUR, SHIFT_LENGTH_HOURS)) * 60.0
+
 
 DEPLOYED_STATES = (
     AssetStatus.RENTED.value,
@@ -117,7 +152,18 @@ def asset_to_features(asset: Asset) -> dict[str, float]:
         "site_assignment_present": 1.0 if asset.current_site_id is not None else 0.0,
         "rental_active": 1.0 if asset.status in DEPLOYED_STATES else 0.0,
         "hours_since_last_seen": round(_hours_since(asset.last_seen_at), 3),
+        "hours_elapsed_today": round(engaged / 60.0, 3),
+        "shift_utilization": round(_shift_utilization(runtime, engaged / 60.0), 4),
     }
+
+
+def _shift_utilization(runtime_minutes: float, hours_elapsed: float) -> float:
+    shift_minutes = shift_minutes_elapsed(hours_elapsed)
+    if shift_minutes <= 0:
+        return 0.0
+    # Capped at 1.0: a machine running through the night legitimately exceeds
+    # the shift, and `continuous_runtime_minutes` is the feature that says so.
+    return min(1.0, runtime_minutes / shift_minutes)
 
 
 def features_to_row(features: dict[str, float]) -> list[float]:

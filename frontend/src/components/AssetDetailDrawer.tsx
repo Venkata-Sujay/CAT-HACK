@@ -37,6 +37,7 @@ import {
   percent,
   productTypeLabel,
 } from "../lib/format";
+import { equipmentImage } from "../lib/equipment";
 import { useAuth } from "../lib/auth";
 import {
   useAlerts,
@@ -72,6 +73,16 @@ export function AssetDetailDrawer({
       <aside className="fixed right-0 top-0 bottom-0 w-full max-w-[620px] bg-surface border-l border-border z-50 flex flex-col animate-slide-in shadow-raised">
         {/* Header */}
         <div className="shrink-0 border-b border-border">
+          {asset && (
+            <div className="relative h-20 overflow-hidden bg-base">
+              <img
+                src={equipmentImage(asset.product_type, "card")}
+                alt={productTypeLabel(asset.product_type)}
+                className="w-full h-full object-cover opacity-60"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/50 to-surface/10" />
+            </div>
+          )}
           <div className="flex items-start justify-between gap-4 p-4 pb-3">
             <div className="min-w-0">
               {asset ? (

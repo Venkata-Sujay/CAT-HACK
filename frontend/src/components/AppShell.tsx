@@ -1,15 +1,28 @@
-/** Application shell: sidebar navigation, top bar, live status indicator. */
+/**
+ * Application shell: sidebar navigation, top bar, live status indicator.
+ *
+ * The sidebar is GROUPED rather than a flat list of nine links. A first-time
+ * viewer opening the company side used to face nine equally-weighted nav items
+ * with no idea which one was the front door; grouping them under Monitor /
+ * Operate / Plan makes the product's shape legible before anything is clicked.
+ */
 
 import { NavLink, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAuth } from "../lib/auth";
 import { useHealth, useSimulatorStatus } from "../lib/queries";
+import { CatBadge, CatCorner } from "./Brand";
 
 interface NavItem {
   to: string;
   label: string;
   icon: ReactNode;
   end?: boolean;
+}
+
+interface NavGroup {
+  title: string;
+  items: NavItem[];
 }
 
 // Inline SVGs rather than an icon package: 12 icons is not worth a dependency,
@@ -43,30 +56,55 @@ const ICONS = {
   bulb: icon(<><path d="M9 18h6M10 22h4" /><path d="M12 2a7 7 0 00-4 12.7V17h8v-2.3A7 7 0 0012 2z" /></>),
 };
 
-const COMPANY_NAV: NavItem[] = [
-  { to: "/company", label: "Control Tower", icon: ICONS.tower, end: true },
-  { to: "/company/map", label: "Map & Sites", icon: ICONS.map },
-  { to: "/company/fleet", label: "Fleet", icon: ICONS.fleet },
-  { to: "/company/inventory", label: "Inventory", icon: ICONS.inventory },
-  { to: "/company/rentals", label: "Rentals", icon: ICONS.rentals },
-  { to: "/company/checkinout", label: "Check-In / Out", icon: ICONS.scan },
-  { to: "/company/clients", label: "Clients", icon: ICONS.clients },
-  { to: "/company/alerts", label: "Alerts", icon: ICONS.alerts },
-  { to: "/company/forecasting", label: "Forecasting", icon: ICONS.forecast },
+const COMPANY_NAV: NavGroup[] = [
+  {
+    title: "Monitor",
+    items: [
+      { to: "/company", label: "Control Tower", icon: ICONS.tower, end: true },
+      { to: "/company/map", label: "Map & Sites", icon: ICONS.map },
+      { to: "/company/alerts", label: "Alerts", icon: ICONS.alerts },
+    ],
+  },
+  {
+    title: "Operate",
+    items: [
+      { to: "/company/checkinout", label: "Check-In / Out", icon: ICONS.scan },
+      { to: "/company/fleet", label: "Fleet", icon: ICONS.fleet },
+      { to: "/company/inventory", label: "Inventory", icon: ICONS.inventory },
+      { to: "/company/rentals", label: "Rentals", icon: ICONS.rentals },
+    ],
+  },
+  {
+    title: "Plan",
+    items: [
+      { to: "/company/clients", label: "Clients", icon: ICONS.clients },
+      { to: "/company/forecasting", label: "Forecasting", icon: ICONS.forecast },
+    ],
+  },
 ];
 
-const CLIENT_NAV: NavItem[] = [
-  { to: "/client", label: "Overview", icon: ICONS.overview, end: true },
-  { to: "/client/assets", label: "My Assets", icon: ICONS.fleet },
-  { to: "/client/employees", label: "Employees", icon: ICONS.employees },
-  { to: "/client/alerts", label: "Alerts", icon: ICONS.alerts },
-  { to: "/client/recommendations", label: "Recommendations", icon: ICONS.bulb },
+const CLIENT_NAV: NavGroup[] = [
+  {
+    title: "My site",
+    items: [
+      { to: "/client", label: "Overview", icon: ICONS.overview, end: true },
+      { to: "/client/assets", label: "My Equipment", icon: ICONS.fleet },
+      { to: "/client/alerts", label: "Alerts", icon: ICONS.alerts },
+    ],
+  },
+  {
+    title: "Manage",
+    items: [
+      { to: "/client/employees", label: "Operators", icon: ICONS.employees },
+      { to: "/client/recommendations", label: "Recommendations", icon: ICONS.bulb },
+    ],
+  },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
-  const items = isAdmin ? COMPANY_NAV : CLIENT_NAV;
+  const groups = isAdmin ? COMPANY_NAV : CLIENT_NAV;
 
   const handleLogout = () => {
     logout();
@@ -76,56 +114,61 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full bg-base">
       {/* ---- Sidebar ---- */}
-      <aside className="w-[228px] shrink-0 border-r border-border bg-surface flex flex-col">
+      <aside className="w-[236px] shrink-0 border-r border-border bg-surface flex flex-col">
         <div className="h-14 flex items-center gap-2.5 px-4 border-b border-border">
-          <div className="w-7 h-7 rounded bg-accent flex items-center justify-center shrink-0">
-            <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4">
-              <path
-                d="M4 17h3l2-9 3 12 3-9 2 6h3"
-                stroke="#0B0E13"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-          <div className="min-w-0">
+          <CatBadge height={20} />
+          <div className="min-w-0 border-l border-border pl-2.5">
             <div className="text-[13px] font-semibold text-ink leading-tight">Smart Rental</div>
-            <div className="text-2xs text-faint leading-tight">Tracking System</div>
+            <div className="text-2xs text-faint leading-tight">Fleet Intelligence</div>
           </div>
         </div>
 
-        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {items.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors ${
-                  isActive
-                    ? "bg-accent/10 text-accent font-medium"
-                    : "text-muted hover:text-ink hover:bg-elevated"
-                }`
-              }
-            >
-              {item.icon}
-              <span className="truncate">{item.label}</span>
-            </NavLink>
+        <nav className="flex-1 p-2 overflow-y-auto">
+          {groups.map((group) => (
+            <div key={group.title} className="mb-3 last:mb-0">
+              <div className="label text-[9px] px-2.5 mb-1.5">{group.title}</div>
+              <div className="space-y-0.5">
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    className={({ isActive }) =>
+                      `relative flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                        isActive
+                          ? "bg-accent/12 text-accent font-medium"
+                          : "text-muted hover:text-ink hover:bg-elevated"
+                      }`
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {isActive && (
+                          <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-accent" />
+                        )}
+                        {item.icon}
+                        <span className="truncate">{item.label}</span>
+                      </>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 
         {/* Tenant badge: makes it unmistakable whose data is on screen -- the
             point of Demo Scene 3. */}
-        <div className="p-2 border-t border-border">
-          <div className="px-2.5 py-2 rounded-md bg-elevated">
-            <div className="text-2xs uppercase tracking-wider text-faint mb-1">
+        <div className="p-2 border-t border-border space-y-2">
+          <div className="px-2.5 py-2 rounded-lg bg-elevated border border-border">
+            <div className="label text-[9px] mb-1">
               {isAdmin ? "Rental Company" : "Client Account"}
             </div>
             <div className="text-xs font-medium text-ink truncate">
               {isAdmin ? "Fleet Operations" : (user?.client?.name ?? "—")}
             </div>
           </div>
+          <CatCorner />
         </div>
       </aside>
 
@@ -151,24 +194,28 @@ function TopBar({ onLogout }: { onLogout: () => void }) {
     .join("")
     .toUpperCase();
 
+  const live = sim?.running || health?.simulator_running;
+
   return (
     <header className="h-14 shrink-0 border-b border-border bg-surface flex items-center justify-between px-5 gap-4">
       <div className="flex items-center gap-4 min-w-0">
         {/* Live telemetry indicator -- the visible proof the simulator is running. */}
-        <div className="flex items-center gap-2">
+        <div
+          className={`flex items-center gap-2 rounded-full border px-2.5 py-1 ${
+            live ? "border-ok/30 bg-ok/10" : "border-border bg-elevated"
+          }`}
+        >
           <span
-            className={`w-1.5 h-1.5 rounded-full ${
-              sim?.running || health?.simulator_running ? "bg-ok animate-pulse-dot" : "bg-faint"
-            }`}
+            className={`w-1.5 h-1.5 rounded-full ${live ? "bg-ok animate-pulse-dot" : "bg-faint"}`}
           />
-          <span className="text-xs text-muted">
-            {sim?.running || health?.simulator_running ? "Live telemetry" : "Telemetry paused"}
+          <span className={`text-2xs font-medium ${live ? "text-ok" : "text-faint"}`}>
+            {live ? "Live telemetry" : "Telemetry paused"}
           </span>
         </div>
 
         {sim?.running && (
           <span className="text-2xs text-faint tnum hidden md:inline">
-            tick {sim.tick_count} · +{sim.simulated_minutes_per_tick}min / {sim.tick_seconds}s
+            tick {sim.tick_count} · +{sim.simulated_minutes_per_tick}min every {sim.tick_seconds}s
           </span>
         )}
       </div>
@@ -190,7 +237,7 @@ function TopBar({ onLogout }: { onLogout: () => void }) {
               {user?.role.replace("_", " ").toLowerCase()}
             </div>
           </div>
-          <div className="w-8 h-8 rounded-full bg-elevated border border-border flex items-center justify-center text-2xs font-semibold text-muted">
+          <div className="w-8 h-8 rounded-lg bg-elevated border border-borderlight flex items-center justify-center text-2xs font-semibold text-muted">
             {initials}
           </div>
         </div>
@@ -224,8 +271,8 @@ export function PageHeader({
   return (
     <div className="flex items-start justify-between gap-4 mb-5">
       <div className="min-w-0">
-        <h1 className="text-lg font-semibold text-ink">{title}</h1>
-        {subtitle && <p className="text-sm text-muted mt-0.5">{subtitle}</p>}
+        <h1 className="text-xl font-semibold text-ink tracking-tight">{title}</h1>
+        {subtitle && <p className="text-sm text-muted mt-1">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
     </div>

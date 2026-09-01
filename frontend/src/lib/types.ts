@@ -279,6 +279,83 @@ export interface Forecast {
   model_version: string | null;
 }
 
+/**
+ * One point on the demand timeline. History rows carry `actual`, forecast rows
+ * carry `predicted`, and exactly one row -- today -- carries both, so the chart
+ * draws a single continuous line across the boundary.
+ */
+export interface ForecastTimelinePoint {
+  date: string;
+  actual: number | null;
+  predicted: number | null;
+  available: number | null;
+  is_forecast: boolean;
+}
+
+export interface ForecastTimeline {
+  site_id: number;
+  product_type: ProductType;
+  today: string;
+  model_version: string | null;
+  points: ForecastTimelinePoint[];
+}
+
+// ---------------------------------------------------------------------------
+// Client onboarding
+// ---------------------------------------------------------------------------
+
+export interface DepotAvailability {
+  product_type: ProductType;
+  available: number;
+  total: number;
+}
+
+export interface OnboardingSiteInput {
+  name: string;
+  address?: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface OnboardingEquipmentInput {
+  product_type: ProductType;
+  quantity: number;
+}
+
+export interface ClientOnboardingRequest {
+  name: string;
+  code?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  login_email: string;
+  login_password: string;
+  login_full_name: string;
+  sites: OnboardingSiteInput[];
+  equipment: OnboardingEquipmentInput[];
+  rental_days: number;
+}
+
+export interface AllocatedAsset {
+  asset_id: number;
+  asset_code: string;
+  product_type: ProductType;
+  model: string | null;
+  site_code: string | null;
+  rental_id: number;
+}
+
+export interface ClientOnboardingResponse {
+  client_id: number;
+  client_name: string;
+  client_code: string;
+  login_email: string;
+  user_id: number;
+  sites: { id: number; code: string; name: string; latitude: number; longitude: number }[];
+  allocated: AllocatedAsset[];
+  inventory_after: DepotAvailability[];
+  expected_return_at: string;
+}
+
 export interface Recommendation {
   id: number;
   client_id: number | null;

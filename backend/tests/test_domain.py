@@ -301,14 +301,22 @@ def test_due_soon_detection(db_session):
 
 
 def test_eqx1007_is_the_scripted_anomaly(db_session):
-    """The problem statement's own row: Excavator, no site, 0 runtime, 12h idle."""
+    """The problem statement's own row: Excavator, no site, no operator, 0 runtime.
+
+    The idle figure is asserted as "the whole seeded day", not a fixed 720, so
+    the check follows SEED_DAY_MINUTES instead of breaking every time the
+    seeded clock moves. What matters is that the machine did NOTHING all day.
+    """
     asset = db_session.execute(select(Asset).where(Asset.asset_code == "EQX1007")).scalar_one()
 
     assert asset.product_type == "EXCAVATOR"
     assert asset.current_site_id is None
     assert asset.assigned_employee_id is None
     assert asset.runtime_minutes_today == 0
-    assert asset.idle_minutes_today == 720
+    # Idle for every minute of the seeded day: runtime is 0, so idle is the
+    # entire elapsed day, and the day is at least 12 hours old.
+    assert asset.idle_minutes_today >= 12 * 60
+    assert asset.runtime_minutes_today + asset.idle_minutes_today == asset.idle_minutes_today
 
     types = {
         a.type

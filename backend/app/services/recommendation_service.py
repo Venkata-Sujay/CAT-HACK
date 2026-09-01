@@ -89,16 +89,29 @@ def generate_company_recommendations(db: Session) -> int:
     """Pre-positioning suggestions driven by forecast shortfalls."""
     created = 0
 
-    # Most recent forecast per (site, product_type) that predicts a shortfall.
-    latest_date = db.execute(select(func.max(Forecast.forecast_date))).scalar_one_or_none()
-    if latest_date is None:
+    # The forecast now spans every day of the horizon, so a (site, type) pair can
+    # show a shortfall on several days. Take the EARLIEST one: "you run short on
+    # Thursday" is actionable, "you might run short in two weeks" is not, and the
+    # near-horizon prediction is also the more reliable of the two because
+    # recursive forecasting compounds error with distance.
+    rows = db.execute(
+        select(Forecast)
+        .where(Forecast.expected_shortfall > 0.5)
+        .order_by(Forecast.forecast_date)
+    ).scalars().all()
+    if not rows:
         return 0
 
-    shortfalls = db.execute(
-        select(Forecast)
-        .where(Forecast.forecast_date == latest_date, Forecast.expected_shortfall > 0.5)
-        .order_by(Forecast.expected_shortfall.desc())
-    ).scalars().all()
+    first_shortfall: dict[tuple[int, str], Forecast] = {}
+    for row in rows:
+        key = (row.site_id, row.product_type)
+        if key not in first_shortfall:
+            first_shortfall[key] = row
+
+    shortfalls = sorted(
+        first_shortfall.values(),
+        key=lambda f: (f.forecast_date, -f.expected_shortfall),
+    )
 
     for forecast in shortfalls:
         site = db.get(Site, forecast.site_id)
@@ -120,30 +133,37 @@ def generate_company_recommendations(db: Session) -> int:
 
         movable = min(spare, needed)
         readable_type = forecast.product_type.replace("_", " ").title()
+        days_out = max(0, forecast.horizon_days)
 
         if movable > 0:
             title = f"Pre-position {movable} {readable_type}(s) to {site.code}"
             description = (
-                f"Demand at {site.name} is forecast at {forecast.predicted_demand:.1f} {readable_type}(s) "
-                f"for {forecast.forecast_date:%d %b}, against {forecast.currently_available} currently available "
-                f"-- a shortfall of {forecast.expected_shortfall:.1f}. "
-                f"{spare} unit(s) of this type are idle in the warehouse and could be moved ahead of demand."
+                f"{site.name} runs short of {readable_type}s in {days_out} day(s), on "
+                f"{forecast.forecast_date:%a %d %b}. Demand is forecast at "
+                f"{forecast.predicted_demand:.1f} against {forecast.currently_available} "
+                f"projected on site -- a shortfall of {forecast.expected_shortfall:.1f}. "
+                f"{spare} unit(s) of this type are idle in the warehouse and could be moved "
+                "ahead of demand."
             )
             rationale = [
+                f"Shortfall first appears: {forecast.forecast_date:%a %d %b} ({days_out} days out)",
                 f"Forecast demand: {forecast.predicted_demand:.1f}",
-                f"Currently available at site: {forecast.currently_available}",
+                f"Projected available at site that day: {forecast.currently_available}",
                 f"Expected shortfall: {forecast.expected_shortfall:.1f}",
-                f"Warehouse stock available: {spare}",
+                f"Warehouse stock available now: {spare}",
             ]
         else:
             title = f"{readable_type} shortage expected at {site.code}"
             description = (
-                f"Demand at {site.name} is forecast at {forecast.predicted_demand:.1f} {readable_type}(s) "
-                f"for {forecast.forecast_date:%d %b}, a shortfall of {forecast.expected_shortfall:.1f}, "
-                "and there is no spare stock of this type in the warehouse. "
+                f"{site.name} runs short of {readable_type}s in {days_out} day(s), on "
+                f"{forecast.forecast_date:%a %d %b} -- demand "
+                f"{forecast.predicted_demand:.1f} against {forecast.currently_available} "
+                f"projected on site, a shortfall of {forecast.expected_shortfall:.1f}. "
+                "There is no spare stock of this type in the warehouse. "
                 "Consider recalling an under-utilised unit from another site."
             )
             rationale = [
+                f"Shortfall first appears: {forecast.forecast_date:%a %d %b} ({days_out} days out)",
                 f"Forecast demand: {forecast.predicted_demand:.1f}",
                 f"Expected shortfall: {forecast.expected_shortfall:.1f}",
                 "No warehouse stock of this type available",

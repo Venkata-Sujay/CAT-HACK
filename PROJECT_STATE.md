@@ -3,12 +3,124 @@
 > **SINGLE SOURCE OF TRUTH** for collaboration between Claude Code and Codex.
 > Every substantial unit of work MUST end with an update to this file.
 >
-> **Status:** `PHASES 1-7 COMPLETE AND VERIFIED. Backend + ML + simulator + full frontend working end-to-end.`
-> **Last updated:** 2026-09-01 by Claude Code (Opus 5)
-> **Tests:** 62 passing, 0 skipped (24 tenant-isolation, 28 domain, 10 ML)
+> **Status:** `PHASES 1-8 COMPLETE AND VERIFIED. Backend + ML + simulator + full frontend working end-to-end.`
+> **Last updated:** 2026-09-02 by Claude Code (Opus 5) — session 2
+> **Tests:** 77 passing, 0 skipped (24 tenant-isolation, 28 domain, 10 ML, 15 onboarding)
 > **Demo readiness:** `python backend/verify_demo.py` → **28/28 scene checks pass**
-> **Verified in a real browser:** login → control tower → fleet → client dashboard → forecasting → check-in/out
-> **Repository at first inspection:** EMPTY. Greenfield. No prior agent work existed.
+> **Verified in a real browser:** login → control tower → fleet → forecasting → check-in/out round trip → client onboarding → client dashboard
+
+---
+
+## WHAT CHANGED IN SESSION 2 (2026-09-02)
+
+Driven by hackathon judge feedback: *"the UI is confusing for a first-time user"*,
+*"demand forecasting doesn't look like it's working"*, and *"three or four polished
+outcomes beat six half-baked ones."*
+
+### 1. Two real bugs, both of which made working systems look broken
+
+| Bug | Symptom the judge saw | Root cause | Fix |
+|---|---|---|---|
+| **Forecast chart froze mid-animation** | Predicted demand of 3.3 rendered as a bar SHORTER than an availability of 1. The table and the chart disagreed, which reads as "the model is broken". | A Recharts `<Bar>` with `<Cell>` children restarts its enter animation on every re-render. These screens poll every 5s, so the bars were permanently caught at ~21% of their true height (measured in the DOM). | `isAnimationActive={false}` on **every** chart. Never re-enable it on a polled chart. |
+| **Train/serve skew flooded the action queue** | 39 "critical alerts", 29 of 34 machines flagged. An action queue nobody could use. | The training generator invented its own normal day — 380 min runtime vs 150 idle (72% utilization). The simulator produces a shift-aware Markov duty cycle that accrues idle overnight: ~36% utilization, 3.5x the idle. **The model had never seen the world it was deployed into.** | The generator now runs the SAME state machine as the simulator, with the same probabilities and shift window. See *Design Decision #23*. |
+
+### 2. Demand forecasting: rebuilt, not patched
+
+The model was fine. What was missing was that a "forecast" of one number, seven
+days out, is not recognisable as a forecast.
+
+- **Recursive multi-step forecasting.** 14 days instead of 1. Each day's
+  prediction feeds the next day's lag features, which is how you run a
+  multi-step forecast off a lag-feature regressor — and why accuracy honestly
+  degrades with horizon.
+- **Projected availability.** Stock is no longer held flat across the horizon.
+  Rentals come off hire on known dates, so each day carries the count that will
+  actually be on site. This produces the system's most useful sentence: *"you
+  have 3 today, two come off hire Thursday, and demand rises to 3.3 on Friday."*
+- **`GET /api/forecast/timeline`** returns history and forecast as ONE series
+  sharing the point at today, so the chart draws a continuous line across the
+  boundary rather than two disconnected ones.
+- **Recommendations now name a date.** They fire on the EARLIEST day a
+  (site, type) goes short, not the last day of the horizon. "You run short on
+  Thursday" is actionable; "you might run short in two weeks" is not.
+
+### 3. Anomaly detection: the metric got worse and the model got better
+
+| | Before | After |
+|---|---|---|
+| Held-out recall | 81.6% | **77.0%** |
+| False-positive rate | 3.0% | 3.0% |
+| Live fleet flagged | **29 of 34** | **1-3 of 34** |
+
+The old 81.6% was measured against an unrealistically tidy "normal". Anything
+that deviated stood out, including everything the live system does all day. The
+new number is lower and the model is usable. Changes:
+
+- **`hours_elapsed_today`** and **`shift_utilization`** added as features.
+  40 minutes of runtime at 07:00 is a machine that has just started; the same
+  40 minutes at 19:00 is a machine that never worked. Without the elapsed
+  context the model cannot tell those apart. `shift_utilization` divides by
+  shift minutes rather than clock minutes, so a healthy machine reads ~0.6 at
+  ANY hour — this alone took "dead asset" recall from 31% to 47%.
+- **`MIN_SCORING_HOURS = 8`.** Machines are not scored until their day is old
+  enough to judge. Both training and inference enforce the same floor.
+- **Per-failure-mode recall is published**, not just one aggregate. It shows
+  exactly what the model is good at (lost asset 100%, overuse 100%, hard
+  failure 96%) and what it is not — which is the measured justification for the
+  hybrid design rather than an assertion.
+- **`unassigned_asset` split out of `lost_asset`.** The combined mode always
+  paired "no site" with "no telemetry for hours", so the model learned them as
+  one signal — and EQX1007, which reports telemetry perfectly well, was missed
+  by 0.0088. See *Design Decision #26*.
+- **Alert-storm guard.** A sweep that flags more than 40% of the fleet is
+  discarded and logged loudly. A fleet-wide flag rate 13x the calibrated
+  false-positive rate is distribution drift, not thirty simultaneous faults.
+  Rules keep firing throughout.
+- **Explanations are de-duplicated.** `utilization` and `shift_utilization`
+  describe the same finding; only the stronger is shown.
+
+### 4. The seeded fleet now shares one clock
+
+`runtime_minutes_today + idle_minutes_today` ranged from 70 to 780 minutes
+across the seeded fleet — fifty machines each living in a different hour of the
+same day. Nothing surfaced it until the model gained `hours_elapsed_today`.
+`SEED_DAY_MINUTES = 18 * 60` now fixes every deployed machine at 18:00, and
+idle is DERIVED as `SEED_DAY_MINUTES - runtime`, never passed in.
+
+### 5. UI overhaul
+
+- **Real equipment photography.** Five machine classes plus a hero shot,
+  downloaded into `frontend/public/equipment/` (never hotlinked — a demo that
+  loses its images to venue WiFi is worse than one that never had them).
+  Sources and licences: `frontend/public/equipment/CREDITS.md`.
+- **Caterpillar brand system.** CAT yellow `#FFCD11` on warm charcoal, a
+  condensed-uppercase label voice, and a hazard-stripe rail reserved for the
+  primary panel and critical alerts. `<CatBadge>` probes for
+  `/brand/cat-logo.svg` then `.png` and falls back to a built wordmark — drop
+  the official asset in and it appears everywhere, zero code change.
+- **KPI row: 8 tiles → 4.** The eight-across row truncated every label past the
+  fourth ("IN WAREHO…", "CRITICAL A…", "AVG UTILIZ…"). Secondary figures moved
+  into a `breakdown` under each headline.
+- **Sidebar grouped** into Monitor / Operate / Plan. Nine equally-weighted links
+  told a first-time viewer nothing about where to start.
+- **Map scroll trap fixed.** Scrolling the control tower used to zoom the map
+  instead of the page. `scrollWheelZoom` is off on embedded maps, on for the
+  full-page one.
+- **Action queue summarised** by type above the cards, so a queue does not read
+  as one undifferentiated wall of red.
+- **Deep links**: equipment class → filtered fleet, queue chip → filtered
+  alerts, shortfall row → that site's timeline.
+
+### 6. NEW FEATURE — client onboarding
+
+`POST /api/clients` creates a tenant, its portal login, its sites and its
+opening equipment allocation **in one transaction**. See
+`backend/app/services/onboarding_service.py` for why it is one call and not
+five, and *Design Decision #24*.
+
+The demo moment: register a client, watch depot stock drop, sign out, sign back
+in as the new account, and it sees exactly its own machines and nothing else.
+Tenant isolation demonstrated live rather than asserted.
 
 ---
 
@@ -25,12 +137,39 @@ cd backend && python -m app.seed && python -m uvicorn app.main:app --reload --po
 cd frontend && npm install && npm run dev     # http://localhost:5173
 
 # 4. Verify
-cd backend && python -m pytest tests/ -q      # expect: 62 passed
+cd backend && python -m pytest tests/ -q      # expect: 77 passed
 cd backend && python verify_demo.py           # expect: ALL 28 CHECKS PASSED (needs the server running)
 ```
 
 **Read before editing:** `backend/app/core/deps.py` is the security boundary.
 *Important Design Decisions* below explains every non-obvious choice.
+
+### Key files
+
+| Purpose | Path |
+|---|---|
+| **Security boundary** ⭐ | `backend/app/core/deps.py` |
+| 8 alert rules | `backend/app/services/rules_engine.py` |
+| Anomaly ML + explainability ⭐ | `backend/app/ml/anomaly.py` |
+| Demand forecasting (recursive, projected supply) ⭐ | `backend/app/ml/forecast.py` |
+| **Shared feature engineering — training AND serving** ⭐ | `backend/app/ml/features.py` |
+| **Training data generator — mirrors the simulator** ⭐ | `ml/generate_training_data.py` |
+| Telemetry simulator | `backend/app/simulator/engine.py` |
+| Alert dedup logic | `backend/app/services/alert_service.py` |
+| **Client onboarding service** ⭐ | `backend/app/services/onboarding_service.py` |
+| Onboarding schemas / tests | `backend/app/schemas/onboarding.py`, `backend/tests/test_onboarding.py` |
+| DB models (12 tables) | `backend/app/models/` |
+| Demo data generation | `backend/app/seed.py` |
+| Security tests ⭐ | `backend/tests/test_tenant_isolation.py` |
+| Demo verification | `backend/verify_demo.py` |
+| Control tower UI | `frontend/src/pages/company/ControlTower.tsx` |
+| Forecasting UI | `frontend/src/pages/company/Forecasting.tsx` |
+| **Charts — the animation fix lives here** ⭐ | `frontend/src/components/Charts.tsx` |
+| Onboarding wizard UI | `frontend/src/components/OnboardClientWizard.tsx` |
+| CAT brand mark + logo slot | `frontend/src/components/Brand.tsx` |
+| Equipment photo helper | `frontend/src/lib/equipment.ts` |
+| Design tokens | `frontend/tailwind.config.js`, `frontend/src/index.css` |
+| Model metrics (auditable) | `ml/artifacts/evaluation_report.json` |
 
 > **Stopping the backend on Windows:** the process appears as `python3.12.exe`, which bash
 > `pkill -f uvicorn` does **not** match. Use PowerShell:
@@ -216,6 +355,8 @@ First-class columns, not an afterthought. An alert that cannot explain itself is
 | POST | `/api/sites` | [A] | add site |
 | GET | `/api/sites/{id}/assets` | [CA] | assets at a site |
 | GET | `/api/clients` | [A] | tenants + rollups |
+| **POST** | **`/api/clients`** | **[A]** | **onboard a client: tenant + login + sites + opening fleet, one transaction** |
+| **GET** | **`/api/clients/availability`** | **[A]** | **depot stock per equipment type — the wizard's allocation ceiling** |
 | GET | `/api/employees` | [CA] | operators (+ current assignment) |
 | POST | `/api/employees` | [CA] | register operator |
 | PATCH | `/api/employees/{id}` | [CA] | edit / deactivate |
@@ -228,7 +369,8 @@ First-class columns, not an afterthought. An alert that cannot explain itself is
 | GET | `/api/alerts` | [CA] | filters severity/type/status; severity-ordered in SQL |
 | PATCH | `/api/alerts/{id}/acknowledge` | [CA] | ack |
 | PATCH | `/api/alerts/{id}/resolve` | [CA] | resolve |
-| GET | `/api/forecast` | [CA] | `?site_id=&product_type=&horizon=` |
+| GET | `/api/forecast` | [CA] | `?site_id=&product_type=&horizon=` window, or `&day=` for one horizon day |
+| **GET** | **`/api/forecast/timeline`** | **[CA]** | **history + forecast as ONE continuous series for a site+type** |
 | POST | `/api/forecast/regenerate` | [A] | re-run model + recommendation rules |
 | GET | `/api/recommendations` | [CA] | scoped |
 | POST | `/api/recommendations/{id}/request` | [C] | "Request More Assets" |
@@ -266,12 +408,27 @@ All 14 screens built. Login → role-based redirect. Guards in `src/App.tsx`.
 | `/company/inventory` | **Inventory** — stock by type with totals row, `[Add asset]` |
 | `/company/rentals` | **Rentals** — Active / Overdue / Returned / All tabs |
 | `/company/checkinout` | **Check-In / Out** — scan console, auto-switches in/out |
-| `/company/clients` | **Clients** — tenant cards + table |
+| `/company/clients` | **Clients** — tenant cards + table, `[+ Register client]` → onboarding wizard |
 | `/company/alerts` | **Action queue** — severity-grouped, filterable |
-| `/company/forecasting` | **Forecasting** — chart, detail table, pre-positioning recs |
+| `/company/forecasting` | **Forecasting** — headline finding, history→forecast timeline, gap chart, first-day-short table, pre-positioning recs |
 
 **Shared:** `AssetDetailDrawer` — right slide-over, tabs Overview / Telemetry / Alerts / History.
 A drawer rather than a route so clicking through an action queue never loses table scroll or filters.
+
+**Deep links.** Equipment class → `/company/fleet?type=<PRODUCT_TYPE>` ·
+action-queue chip → `/company/alerts?type=<ALERT_TYPE>` · map marker →
+`/company/fleet?site=<id>` · shortfall row → that site+type on the timeline.
+Filters read from the URL on mount and write back on change, so any view is
+shareable.
+
+**New components (session 2)**
+
+| Component | Purpose |
+|---|---|
+| `components/Brand.tsx` | `<CatBadge>` (probes for the official logo, falls back to a built wordmark) and `<CatCorner>` |
+| `components/FleetStrip.tsx` | Five photo cards, one per machine class, with a deployed/depot/workshop bar. Also `<EquipmentBanner>` |
+| `components/OnboardClientWizard.tsx` | Three-step new-client registration, capped by real depot stock |
+| `lib/equipment.ts` | `equipmentImage(type, "card" \| "thumb")` and the type blurbs |
 
 ---
 
@@ -279,14 +436,59 @@ A drawer rather than a route so clicking through an action queue never loses tab
 
 ### Model 1 — Anomaly Detection (IsolationForest)
 
-**Verified: 81.6% detection at 3.0% false-positive rate. Precision 58.2%, recall 81.6%, F1 0.679.**
+**Verified: 77.0% detection at 3.0% false-positive rate. Precision 56.8%, F1 0.654.**
+
+Recall is published **per failure mode**, because one aggregate number hides the
+only thing worth knowing — which failures the model actually catches:
+
+| Failure mode | Recall | What it is |
+|---|---|---|
+| `lost_asset` | **100%** | no site AND no telemetry for hours |
+| `overuse` | **100%** | running through the night, barely stopping |
+| `hard_failure` | **96%** | degraded engine/tire with collapsed output |
+| `dead_asset` | **67%** | on hire, producing nothing |
+| `unassigned_asset` | **53%** | on hire, no site, still reporting — the EQX1007 pattern |
+| `fuel_anomaly` | **46%** | nearly empty against very little work done |
+
+**These numbers replaced an earlier 81.6%, and the drop is the point.** The old
+figure was measured against a training distribution that did not resemble the
+running system (see *Session 2* above). It scored well on a world that did not
+exist, and flagged 29 of 34 live machines. The current model scores 1-3.
+
+**Why single-feature anomalies score at chance.** IsolationForest measures how
+easily a point is separated by random axis-aligned splits. A row that is extreme
+on ONE of fourteen features barely moves its average path length — the deviation
+is diluted by the thirteen ordinary ones. Measured directly: an unauthorized
+operator, which is a single boolean flip, was detected **0 times out of 96**.
+
+That is not a defect to hide. It is the measured justification for the hybrid
+design: single-signal conditions belong to the rule engine, which catches them
+with certainty; the model earns the combinations no threshold describes.
 
 **Why unsupervised:** we have no labelled misuse data. Labelling our own synthetic anomalies and then
 "detecting" them would be circular reasoning dressed as ML. The model is trained on the **normal
 subset only** (11,414 rows); the 586 injected anomalies are withheld purely to verify separation.
 
-**12 features**, defined once in `backend/app/ml/features.py` and imported by **both** training and
+**14 features**, defined once in `backend/app/ml/features.py` and imported by **both** training and
 inference. Separate definitions would drift and the model would silently score garbage.
+
+Two were added in session 2 and both exist to give the model TIME CONTEXT:
+
+- **`hours_elapsed_today`** = `(runtime + idle) / 60`. Forty minutes of runtime at
+  07:00 is a machine that has just started; the same forty minutes at 19:00 is a
+  machine that never worked. Derived from existing counters, so it needs no new
+  data source on either side.
+- **`shift_utilization`** = `runtime / shift_minutes_elapsed`, capped at 1.0.
+  Plain `utilization` divides by the whole elapsed day including the night, so a
+  healthy machine reads 0.16 at 08:00 and 0.44 at 20:00 — and a genuinely dead
+  machine at 08:00 lands inside that range. Dividing by shift minutes only makes
+  a healthy machine read ~0.6 at ANY hour. Turning a conditional into a flat one
+  took `dead_asset` recall from 31% to 47%.
+
+**Assets are not scored before `MIN_SCORING_HOURS` (8h) of their day has
+elapsed.** Before then a stopped machine and a dead machine are indistinguishable
+and scoring anyway flags the fleet. The training generator applies the identical
+floor; changing one without the other reintroduces the skew.
 
 **The threshold is CALIBRATED, not hardcoded.** `IsolationForest.decision_function` is offset by its
 `contamination` parameter, so the natural boundary is 0.0 — not a hand-picked negative number. An
@@ -310,7 +512,20 @@ EQX1007: underutilization detected                              [MEDIUM] [AI]
 
 ### Model 2 — Demand Forecasting (HistGradientBoostingRegressor)
 
-**Verified: beats the 7-day rolling-mean baseline by 27.6% MAE** (0.5040 vs 0.6965; RMSE 0.834 vs 1.075).
+**Verified: beats the 7-day rolling-mean baseline by 27.2% MAE** (0.4537 vs 0.6233; RMSE 0.656 vs 0.901).
+
+**The forecast is RECURSIVE, not single-shot.** The model's strongest features
+are lags (`prev_day_demand`, `rolling_7d_mean`, `rolling_30d_mean`). To predict
+day D+3 you need day D+2, which you do not have — so each prediction is appended
+to the working series and feeds the next day's features. This is the standard way
+to run a multi-step forecast off a lag-feature regressor, and it is why accuracy
+honestly degrades with horizon: errors compound.
+
+**Availability is PROJECTED, not frozen.** A site's stock is not constant.
+Rentals come off hire on known dates and those machines go back to the depot, so
+each forecast day carries the count that will actually be on site that day.
+Holding it flat would hide the single most useful thing the system says: *"you
+have 3 today, two come off hire Thursday, and demand rises to 3.3 on Friday."*
 
 Top drivers by permutation importance: `rolling_30d_mean` (+0.35), `day_of_week` (+0.30),
 `prev_week_demand` (+0.10) — exactly the level and weekly-cycle structure injected into the generator,
@@ -475,13 +690,22 @@ Seeded, shift-aware, monotonic health, refuel events, parked assets, manual tick
 recalibrated anomaly rates, ML and forecast on slower cadences.
 
 ### Phase 5 — ML ✅
-Data generation · IsolationForest (81.6%/3.0%) · HistGBR (+27.6% vs baseline) · evaluation report ·
+Data generation · IsolationForest (77.0%/3.0% after the session-2 retrain) · HistGBR (+27.2% vs baseline) · evaluation report ·
 median/IQR explainability · graceful degradation when artifacts are missing · shared feature module.
 
 ### Phase 6-7 — Frontend ✅
 Design system + 14 screens + shared components · typed API client · TanStack Query polling ·
 Leaflet map with live data in the markers · Recharts throughout · loading/empty/error states
 everywhere. **Verified in a real browser end-to-end.**
+
+### Phase 8 — Judge feedback pass ✅ (session 2)
+Two bugs that made working systems look broken (frozen forecast bars, train/serve
+skew) · demand forecasting rebuilt as a recursive 14-day timeline with projected
+availability · anomaly model retrained against the simulator's real distribution,
+with per-mode recall published · Caterpillar brand system and real equipment
+photography across every screen · KPI rows cut from 8 tiles to 4 · sidebar
+grouped · map scroll trap fixed · client onboarding built end to end with 15 new
+tests. **77 tests, 28/28 demo checks, verified in a browser.**
 
 ## In Progress
 
@@ -493,8 +717,9 @@ Ordered by value. Nothing here blocks the demo.
 
 | # | Task | Notes |
 |---|---|---|
-| 1 | **Rehearse the 8 scenes out loud, with a timer** | `verify_demo.py` proves the DATA and API support every scene (28/28). What remains is the human run-through: narration, pacing, screen order. |
-| 2 | Frontend smoke tests (Vitest/Playwright) | Backend has 62 tests; frontend has none. |
+| 1 | **Rehearse the demo out loud, with a timer** | `verify_demo.py` proves the DATA and API support every scene (28/28). What remains is the human run-through: narration, pacing, screen order. There are now **9 scenes** — client onboarding is the new one, and it is the strongest, because it demonstrates tenant isolation live instead of asserting it. |
+| 1b | **Drop the official CAT logo into `frontend/public/brand/`** | `cat-logo.svg` or `cat-logo.png`. Zero code change; the built fallback wordmark is showing until you do. See that folder's README. |
+| 2 | Frontend smoke tests (Vitest/Playwright) | Backend has 77 tests; frontend has none. The forecast-chart animation bug is exactly the class a render test would have caught. |
 | 3 | Alembic squashed initial migration | Scaffolding exists; the schema is now stable enough to freeze. |
 | 4 | `docker-compose.yml` for the Postgres path | Only useful once the Docker daemon runs. |
 | 5 | Bundle code-splitting | 941 kB / 275 kB gzipped. Fine for a demo, not production. |
@@ -513,7 +738,18 @@ Accepted, deliberate trade-offs — recorded up front so nobody "discovers" them
 6. **Synthetic training data.** Metrics measure fit to our own generator. State it, never oversell it.
 7. **Single-process simulator.** Two API workers would double-tick. Needs a lock for real deployment.
 8. **Frontend bundle is 941 kB** (275 kB gzipped) — Leaflet + Recharts, not code-split.
-9. **No frontend tests.** Task #2.
+9. **No frontend tests.** Task #2. Note that the one visual bug that reached a
+   judge — the frozen forecast bars — was invisible to every backend test and to
+   `verify_demo.py`, because the API was returning correct numbers the whole
+   time. It was found by measuring rendered bar heights in the DOM.
+9b. **Anomaly precision is 57%.** Roughly four in ten ML alerts are false
+   positives, deliberately: recall was prioritised because a missed unauthorized
+   operator costs far more than a dismissed alert. State this plainly.
+9c. **Onboarding puts all allocated equipment at the client's FIRST site.**
+   Spreading an opening allocation across sites is a dispatch decision, and
+   dispatch already has a screen; guessing here would produce moves to undo.
+9d. **Onboarding creates one login per client.** Multiple users per tenant is a
+   schema-supported but unimplemented case.
 10. **Node 20.17 is below Vite's preferred 20.19+.** Prints a warning at startup; works fine.
 11. **`HTTP_422_UNPROCESSABLE_ENTITY` deprecation warnings** from a newer Starlette. Cosmetic.
 
@@ -526,7 +762,7 @@ Accepted, deliberate trade-offs — recorded up front so nobody "discovers" them
 5. **Hybrid intelligence** — deterministic facts (unauthorized operator, overdue, low fuel) must never
    be probabilistic. ML earns only the fuzzy pattern cases.
 6. **HistGBR over XGBoost** — already installed, no new artifact format, and it beats the baseline by
-   27.6%. xgboost stays available if a future need justifies it.
+   27.2%. xgboost stays available if a future need justifies it.
 7. **Alert `dedupe_key` NULL-on-resolve** — a portable partial unique index. Without it the simulator
    floods the table within a minute.
 8. **Health degrades monotonically** — recovery only via maintenance or check-in inspection. A tire
@@ -558,6 +794,77 @@ Accepted, deliberate trade-offs — recorded up front so nobody "discovers" them
 22. **Maintenance assets are excluded from health alerts** — a machine in the workshop having a
     critical engine is *why* it is there; alerting on it puts permanent un-actionable rows in the queue.
 
+23. **The training generator runs the simulator's own state machine** — same
+    duty-cycle probabilities, same 06:00-20:00 shift, same fuel burn and refuel
+    behaviour, same "current run" semantics for `continuous_runtime_minutes`.
+    The previous generator invented a tidier world (72% utilization vs the
+    simulator's 36%), so the model had never seen what it was deployed into and
+    flagged 29 of 34 machines. Design Decision #19 said feature ENGINEERING must
+    be shared between training and serving; this extends the same rule to the
+    DATA. If you change `SIM_START_WORK_PROB`, `SIM_STOP_WORK_PROB`, the shift
+    window or the refuel settings in `config.py`, update the constants at the
+    top of `ml/generate_training_data.py` and **retrain**.
+
+24. **Client onboarding is ONE transaction, not five API calls** — a customer
+    arriving is one business event. Five calls make a half-created tenant a
+    normal outcome: a login with no equipment, or sites against a client whose
+    user creation then failed. Every one of those has to be unpicked by hand.
+    Allocation goes through `rental_service.checkout` rather than setting asset
+    columns directly, so onboarding inherits the audited path — AssetEvent
+    written, one-open-rental-per-asset enforced, maintenance machines refused,
+    daily counters reset. And you cannot allocate stock the depot does not hold:
+    the request fails with a 409 naming the shortfall rather than quietly
+    handing over fewer machines than were asked for.
+
+25. **`isAnimationActive={false}` on every chart** — Recharts restarts a bar's
+    enter animation whenever it receives a new data array. These screens poll
+    every 5s. On a `<Bar>` with `<Cell>` children the cells remount mid-flight
+    and the bar freezes at whatever fraction of its height it reached: measured
+    at ~21%, which rendered a forecast of 3.3 shorter than an availability of 1.
+    The table said one thing and the chart said the opposite. **Never re-enable
+    animation on a polled chart.**
+
+26. **`unassigned_asset` is a separate failure mode from `lost_asset`** — the
+    combined mode always paired "no site" with "no telemetry for hours", so the
+    model learned them as a single signal. The problem statement's own row —
+    EQX1007, on hire, no site, zero runtime — reports telemetry perfectly well
+    every tick, matched only half the learned pattern, and scored +0.0088
+    against a 0.0 threshold. Missed by a hair, for a reason that had nothing to
+    do with the machine. A machine can be unaccounted for while still talking to
+    you, and that is the more expensive failure: it accrues rent, produces
+    nothing, and nobody is looking.
+
+27. **The seeded fleet shares one clock (`SEED_DAY_MINUTES`)** — `runtime + idle`
+    used to range from 70 to 780 minutes across the seeded fleet, i.e. fifty
+    machines each living in a different hour of the same day. Nothing surfaced
+    it until the model gained `hours_elapsed_today`. `idle_minutes_today` is now
+    DERIVED as `SEED_DAY_MINUTES - runtime` and never passed in, so consistency
+    holds by construction. A demo dataset has to be internally consistent for
+    the same reason production data does: models read relationships, not
+    individual numbers.
+
+28. **A sweep that flags >40% of the fleet is discarded** (`ALERT_STORM_FRACTION`).
+    The model is calibrated to a 3% false-positive rate. If one sweep says a
+    third of every machine on hire is behaving abnormally, the likelier
+    explanation by far is that the fleet moved somewhere the model was not
+    trained — a shift boundary, a counter rollover, a parameter change — not
+    that thirty machines broke in the same ten seconds. The sweep is dropped and
+    the reason logged loudly. Rules are unaffected and keep firing, which is the
+    point of splitting them: the deterministic layer never goes quiet because
+    the probabilistic one lost its footing.
+
+29. **Equipment photography is downloaded, not hotlinked** — a demo that loses
+    its images because the venue WiFi dropped is worse than one that never had
+    them. `frontend/public/equipment/` holds an 800x500 card and a 240x150
+    thumbnail per class; the thumbnail exists because serving the large file
+    into a 20px table cell fifty times is megabytes for nothing. Licences and
+    Commons source URLs are in `CREDITS.md` / `CREDITS.json` beside them.
+
+30. **The Caterpillar logo is NOT committed to this repo** — `<CatBadge>` probes
+    for `/brand/cat-logo.svg`, then `.png`, and falls back to a built wordmark.
+    The layout is identical either way, so dropping the official asset in is a
+    zero-code change. See `frontend/public/brand/README.md`.
+
 ## How to Run
 
 **Verified working.** Two terminals, no Docker.
@@ -587,7 +894,7 @@ npm run dev            # http://localhost:5173
 
 ```bash
 # Tests
-cd backend && python -m pytest tests/ -q     # 62 passed
+cd backend && python -m pytest tests/ -q     # 77 passed
 ```
 
 - API docs: <http://localhost:8000/docs>
@@ -595,6 +902,31 @@ cd backend && python -m pytest tests/ -q     # 62 passed
 
 `python -m app.seed --keep` only seeds an empty database. The backend fails **gracefully** with a
 "run `ml/train_*.py`" message if artifacts are missing, degrading to rules-only intelligence.
+
+## Equipment Imagery
+
+Real machine photographs live in `frontend/public/equipment/`, downloaded rather
+than hotlinked (Design Decision #29). Each class has an 800x500 `card` and a
+240x150 `thumb`; `hero.jpg` is 1920x1080 for the login page.
+
+| File | Subject | Licence |
+|---|---|---|
+| `excavator.jpg` | Caterpillar 330 excavator | CC BY-SA 4.0 |
+| `bulldozer.jpg` | Caterpillar D6K2 XL bulldozer | CC BY-SA 4.0 |
+| `crane.jpg` | Yellow crawler crane | Public domain |
+| `grader.jpg` | Caterpillar 24H motor grader | CC BY-SA 4.0 |
+| `wheel_loader.jpg` | Caterpillar 950K wheel loader | CC BY-SA 4.0 |
+| `hero.jpg` | Caterpillar 352F quarry excavator | CC BY-SA 4.0 |
+
+Sources are Wikimedia Commons; `CREDITS.json` beside them holds the machine
+readable record including each file's Commons page URL. To swap or add an image,
+drop a file in with the matching slug from `frontend/src/lib/equipment.ts` — the
+`SLUG` map there is the only place filenames are named.
+
+**The Caterpillar logo is deliberately absent from the repo.** See
+`frontend/public/brand/README.md`: save the official asset as `cat-logo.svg` or
+`cat-logo.png` in that folder and it appears in the sidebar, on the login screen
+and in the page corner with no code change. Until then a built wordmark stands in.
 
 ## Demo Credentials
 
@@ -620,9 +952,15 @@ All eight scenes are seeded deterministically and were verified in a browser.
 | 5 | **Live telemetry** | Any screen | "Live telemetry" pulse + tick counter in the top bar. Runtime/fuel/utilization move. `[Tick once]` advances on cue. |
 | 6 | **Deadlines** | `/company/rentals` | `EQX1021` overdue by ~3 days (red), `EQX1030` due in ~31h (amber). |
 | 7 | **Forecast** | `/company/forecasting` | SITE-001 Wheel Loader: 3.3 predicted vs 1 available → **shortfall 2.3**. Red bars mark shortfalls. Model version is shown. |
-| 8 | **Recommendation** | Same page + `/client/recommendations` | Company: "Pre-position 1 Wheel Loader to SITE-003" with the numbers behind it. Client: `[Request more assets]` → creates the record. |
+| 8 | **Recommendation** | Same page + `/client/recommendations` | Company: "Pre-position 1 Wheel Loader to SITE-003" with the numbers behind it, **and the date it goes short**. Client: `[Request more assets]` → creates the record. |
+| 9 | **Onboard a client** ⭐ | `/company/clients` → `[+ Register client]` | Three steps: company + login, site, equipment. The equipment step is capped by REAL depot stock — try to take 25 excavators and it refuses. Submit: tenant created, site on the map with the next SITE-00N code, machines checked out with an audit trail, depot count drops on screen. **Then sign out and sign in as the account you just made** — it sees exactly its own machines and nothing else. Tenant isolation demonstrated, not asserted. |
 
-**Closes the loop: SPOT → EXPLAIN → ACT → PREDICT → RECOMMEND**
+**Closes the loop: ONBOARD → SPOT → EXPLAIN → ACT → PREDICT → RECOMMEND**
+
+**Scene 9 is the strongest closer.** It is the only moment where the audience
+watches a tenant boundary get created and then immediately tested, and it
+answers the "so how does a real customer actually start?" question that every
+other scene leaves open.
 
 **Demo tips**
 - `[Tick once]` on the control tower advances the simulation on cue — do not wait for the timer.
@@ -632,12 +970,19 @@ All eight scenes are seeded deterministically and were verified in a browser.
 ## Next Agent Instructions
 
 > **CURRENT STATE: the system is COMPLETE and WORKING. Backend, ML, simulator and all 14 frontend
-> screens are built, tested and verified in a browser. 62 tests pass. Do not rebuild anything.**
+> screens are built, tested and verified in a browser. 77 tests pass, 28/28 demo checks pass.
+> Do not rebuild anything.**
+>
+> Session 2 (2026-09-02) reworked the UI, fixed two bugs that made working systems
+> look broken, rebuilt demand forecasting as a recursive multi-day timeline, and
+> added client onboarding. **Read "WHAT CHANGED IN SESSION 2" at the top of this
+> file before touching the ML or the charts** — both contain fixes that are easy
+> to undo by accident.
 
 **If you are Codex picking this up:**
 
 1. **Verify before you change.** Run the four Quick-orientation commands at the top. If `pytest`
-   reports 62 passed and the browser shows the control tower, the system is healthy — any breakage you
+   reports 77 passed and the browser shows the control tower, the system is healthy — any breakage you
    see after that is yours.
 
 2. **Read the three environment landmines** in the Environment Audit. They cost real debugging time
@@ -654,6 +999,19 @@ All eight scenes are seeded deterministically and were verified in a browser.
    training time and stored in the artifact (`ml/train_anomaly_model.py` → metadata →
    `app/ml/anomaly.py`). A hardcoded value previously caused a silent 0% detection rate.
 
+4b. **Keep the training generator in step with the simulator.** The constants at
+   the top of `ml/generate_training_data.py` (`P_START_IN_SHIFT`, `P_STOP_IN_SHIFT`,
+   `SHIFT_START_HOUR`, `SHIFT_END_HOUR`, `REFUEL_TRIGGER`, `REFUEL_PROB`,
+   `MIN_SCORING_HOURS`) mirror `backend/app/config.py` and
+   `backend/app/ml/anomaly.py`. Change one side without the other and you
+   reintroduce the skew that flagged 29 of 34 machines. **Retrain after any
+   simulator change**, then re-check the live flag rate — not just held-out
+   recall, which can look fine while the deployed system floods.
+
+4c. **Do not re-enable chart animation.** `isAnimationActive={false}` in
+   `frontend/src/components/Charts.tsx` is a correctness fix, not a style
+   choice. See Design Decision #25.
+
 5. **Do not raise the simulator anomaly probabilities** without re-reading the time-compression note
    in the Simulator section. The brief's suggested 2–5% produces 52 open alerts in 22 minutes.
 
@@ -664,13 +1022,23 @@ All eight scenes are seeded deterministically and were verified in a browser.
    row, kept parked by `SIM_PARKED_ASSET_CODES`. EQX1012 carries the scripted operator mismatch, kept
    alive by `SIM_STICKY_OPERATOR_ASSET_CODES`. Do not "fix" either into normal behaviour.
 
+   EQX1007's ML alert sits close to the decision boundary by nature — it is a
+   quiet failure, not a dramatic one. It is currently comfortably inside
+   (score ≈ -0.025) because `SEED_DAY_MINUTES` places the fleet at 18:00. If you
+   move the seeded clock earlier, re-check that it still fires: at 16:00 it
+   scored +0.0008, i.e. correct but decided in the fourth decimal place.
+
+7b. **`idle_minutes_today` is DERIVED in the seed, never passed in.** Design
+   Decision #27. If you add a `deploy(...)` call, give it `runtime_today` only.
+
 8. **Run `python backend/verify_demo.py` after any change to the simulator, rule engine or seed.**
    It checks all eight demo scenes through the real API with real credentials, and it has already
    caught two scene-breaking regressions that unit tests did not.
 
 ### Highest-priority next task
 
-**Rehearse the 8 scenes out loud, with a timer.** `python backend/verify_demo.py` already proves the
+**Rehearse the 9 scenes out loud, with a timer**, and **drop the official CAT
+logo into `frontend/public/brand/`**. `python backend/verify_demo.py` already proves the
 data and API support every scene (28/28 checks). What has not been done is the human run-through:
 narration, pacing, and screen order. Run `verify_demo.py` immediately before presenting — it catches
 scene-breaking drift in seconds.

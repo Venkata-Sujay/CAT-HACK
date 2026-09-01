@@ -16,11 +16,15 @@ import type {
   AssetEvent,
   AssetLookupResponse,
   ClientDashboard,
+  ClientOnboardingRequest,
+  ClientOnboardingResponse,
   ClientRow,
+  DepotAvailability,
   CompanyDashboard,
   Employee,
   EmployeeWithAssignment,
   Forecast,
+  ForecastTimeline,
   HealthResponse,
   Page,
   ProductType,
@@ -172,6 +176,33 @@ export function useClients() {
   });
 }
 
+/**
+ * Depot stock, by equipment type. Admin-only, so it is only mounted on the
+ * onboarding wizard; a client polling it would 403 on a loop.
+ */
+export function useDepotAvailability(enabled = true) {
+  return useQuery({
+    queryKey: ["clients", "availability"],
+    queryFn: () => api.get<DepotAvailability[]>("/clients/availability"),
+    enabled,
+    refetchInterval: SLOW_POLL_MS,
+  });
+}
+
+/**
+ * Register a new client: tenant, portal login, sites and opening fleet, in one
+ * transaction. Invalidates everything on success because a successful call
+ * moves assets, sites, rentals AND the client list at once.
+ */
+export function useOnboardClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ClientOnboardingRequest) =>
+      api.post<ClientOnboardingResponse>("/clients", body),
+    onSuccess: () => invalidateLiveData(qc),
+  });
+}
+
 export function useEmployees(clientId?: number) {
   return useQuery({
     queryKey: ["employees", clientId ?? "mine"],
@@ -278,10 +309,42 @@ export function useResolveAlert() {
 // Intelligence
 // ---------------------------------------------------------------------------
 
-export function useForecast(params: { site_id?: number | ""; product_type?: ProductType | "" } = {}) {
+export function useForecast(
+  params: {
+    site_id?: number | "";
+    product_type?: ProductType | "";
+    /** Pick ONE horizon day. Omit for the whole 1..horizon window. */
+    day?: number;
+    horizon?: number;
+  } = {},
+) {
   return useQuery({
     queryKey: ["forecast", params],
     queryFn: () => api.get<Forecast[]>(`/forecast${qs(params)}`),
+    refetchInterval: SLOW_POLL_MS,
+  });
+}
+
+/**
+ * One continuous history-then-forecast series for a single site + type.
+ * Disabled until both are chosen -- the endpoint requires them.
+ */
+export function useForecastTimeline(
+  siteId: number | undefined,
+  productType: ProductType | undefined,
+  historyDays = 21,
+) {
+  return useQuery({
+    queryKey: ["forecast", "timeline", siteId, productType, historyDays],
+    enabled: siteId !== undefined && productType !== undefined,
+    queryFn: () =>
+      api.get<ForecastTimeline>(
+        `/forecast/timeline${qs({
+          site_id: siteId,
+          product_type: productType,
+          history_days: historyDays,
+        })}`,
+      ),
     refetchInterval: SLOW_POLL_MS,
   });
 }

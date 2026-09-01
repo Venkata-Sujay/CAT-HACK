@@ -23,8 +23,8 @@ import { percent } from "../lib/format";
  */
 function siteIcon(site: SiteWithStats): L.DivIcon {
   const hasAnomalies = site.anomaly_count > 0;
-  const color = site.is_warehouse ? "#64748B" : hasAnomalies ? "#EF4444" : "#FFB020";
-  const ring = hasAnomalies ? "#EF4444" : "#FFB020";
+  const color = site.is_warehouse ? "#6B7688" : hasAnomalies ? "#F0555A" : "#FFCD11";
+  const ring = hasAnomalies ? "#F0555A" : "#FFCD11";
 
   return L.divIcon({
     className: "",
@@ -38,16 +38,16 @@ function siteIcon(site: SiteWithStats): L.DivIcon {
         }
         <div style="
           width:30px;height:30px;border-radius:50%;
-          background:${color};border:2px solid #0B0E13;
+          background:${color};border:2px solid #0A0B0D;
           display:flex;align-items:center;justify-content:center;
-          font:600 11px/1 Inter,sans-serif;color:#0B0E13;
+          font:600 11px/1 Inter,sans-serif;color:#0A0B0D;
           box-shadow:0 2px 8px rgba(0,0,0,0.5);position:relative;">
           ${site.deployed_assets}
         </div>
         ${
           hasAnomalies
             ? `<div style="position:absolute;top:-3px;right:-3px;width:14px;height:14px;
-                 border-radius:50%;background:#EF4444;border:2px solid #0B0E13;
+                 border-radius:50%;background:#F0555A;border:2px solid #0A0B0D;
                  font:700 8px/10px Inter,sans-serif;color:#fff;text-align:center;">
                  ${site.anomaly_count}
                </div>`
@@ -74,10 +74,13 @@ export function SiteMap({
   sites,
   onSelectSite,
   height = "100%",
+  /** Embedded maps must not eat the page scroll. Full-page maps should. */
+  scrollWheelZoom = false,
 }: {
   sites: SiteWithStats[];
   onSelectSite?: (siteId: number) => void;
   height?: string | number;
+  scrollWheelZoom?: boolean;
 }) {
   // Fall back to the depot region if there is nothing to fit to yet.
   const center = useMemo<[number, number]>(() => {
@@ -88,8 +91,22 @@ export function SiteMap({
   }, [sites]);
 
   return (
-    <div style={{ height }} className="rounded-lg overflow-hidden border border-border">
-      <MapContainer center={center} zoom={10} style={{ height: "100%", width: "100%" }} zoomControl>
+    <div style={{ height }} className="relative rounded-lg overflow-hidden border border-border">
+      {!scrollWheelZoom && (
+        <div
+          className="absolute bottom-2 left-2 z-[400] pointer-events-none rounded-md
+                     bg-surface/85 border border-border px-2 py-1 text-2xs text-faint backdrop-blur"
+        >
+          Use + / − to zoom
+        </div>
+      )}
+      <MapContainer
+        center={center}
+        zoom={10}
+        style={{ height: "100%", width: "100%" }}
+        zoomControl
+        scrollWheelZoom={scrollWheelZoom}
+      >
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'

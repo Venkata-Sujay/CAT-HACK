@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { PageHeader } from "../../components/AppShell";
 import { FleetCompositionChart } from "../../components/Charts";
+import { FleetStrip } from "../../components/FleetStrip";
 import { Card, ErrorState, SectionHeader, Spinner, UtilizationBar } from "../../components/ui";
+import { equipmentImage } from "../../lib/equipment";
 import { productTypeLabel } from "../../lib/format";
 import { useCompanyDashboard, useCreateAsset } from "../../lib/queries";
 import type { ProductType } from "../../lib/types";
@@ -44,6 +46,11 @@ export function Inventory() {
         </div>
       )}
 
+      {/* The stock itself, before the numbers about it. */}
+      <div className="mb-5">
+        <FleetStrip stats={by_product_type} />
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
         <Card className="lg:col-span-2" padded={false}>
           <div className="p-4 pb-2">
@@ -65,7 +72,17 @@ export function Inventory() {
               <tbody>
                 {by_product_type.map((stat) => (
                   <tr key={stat.product_type} className="border-b border-border/60 hover:bg-elevated transition-colors">
-                    <td className="td text-ink font-medium">{productTypeLabel(stat.product_type)}</td>
+                    <td className="td text-ink font-medium">
+                      <span className="inline-flex items-center gap-2.5">
+                        <img
+                          src={equipmentImage(stat.product_type, "thumb")}
+                          alt=""
+                          loading="lazy"
+                          className="w-10 h-7 rounded object-cover shrink-0 border border-border/60"
+                        />
+                        {productTypeLabel(stat.product_type)}
+                      </span>
+                    </td>
                     <td className="td text-right text-ink tnum">{stat.total}</td>
                     <td className="td text-right text-accent tnum">{stat.deployed}</td>
                     <td className="td text-right text-muted tnum">{stat.warehouse}</td>
@@ -83,7 +100,7 @@ export function Inventory() {
               </tbody>
               <tfoot>
                 <tr className="border-t border-border bg-base/50">
-                  <td className="td text-ink font-semibold">Total</td>
+                  <td className="td text-ink font-semibold pl-[54px]">Total</td>
                   <td className="td text-right text-ink font-semibold tnum">{kpis.total_fleet}</td>
                   <td className="td text-right text-accent font-semibold tnum">
                     {by_product_type.reduce((sum, s) => sum + s.deployed, 0)}

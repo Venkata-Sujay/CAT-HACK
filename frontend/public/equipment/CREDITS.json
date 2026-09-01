@@ -1,0 +1,67 @@
+[
+  {
+    "slug": "excavator",
+    "files": [
+      "excavator.jpg",
+      "excavator-thumb.jpg"
+    ],
+    "title": "Caterpillar 330 excavator on a pile of dirt.jpg",
+    "license": "CC BY-SA 4.0",
+    "artist": "<a rel=\"nofollow\" class=\"external text\" href=\"https://matthewtrader.com\">Matthew T Rader</a>",
+    "descriptionurl": "https://commons.wikimedia.org/wiki/File:Caterpillar_330_excavator_on_a_pile_of_dirt.jpg"
+  },
+  {
+    "slug": "bulldozer",
+    "files": [
+      "bulldozer.jpg",
+      "bulldozer-thumb.jpg"
+    ],
+    "title": "Caterpillar D6K2 XL bulldozer on a job site.jpg",
+    "license": "CC BY-SA 4.0",
+    "artist": "<a href=\"//commons.wikimedia.org/wiki/User:Grendelkhan\" title=\"User:Grendelkhan\">Grendelkhan</a>",
+    "descriptionurl": "https://commons.wikimedia.org/wiki/File:Caterpillar_D6K2_XL_bulldozer_on_a_job_site.jpg"
+  },
+  {
+    "slug": "crane",
+    "files": [
+      "crane.jpg",
+      "crane-thumb.jpg"
+    ],
+    "title": "That's Not A Crane, THIS Is A Crane.jpg",
+    "license": "Public domain",
+    "artist": "<a href=\"//commons.wikimedia.org/wiki/User:Ingolfson\" title=\"User:Ingolfson\">Ingolfson</a>",
+    "descriptionurl": "https://commons.wikimedia.org/wiki/File:That%27s_Not_A_Crane,_THIS_Is_A_Crane.jpg"
+  },
+  {
+    "slug": "grader",
+    "files": [
+      "grader.jpg",
+      "grader-thumb.jpg"
+    ],
+    "title": "CATERPILLAR 24H MOTOR GRADER.jpg",
+    "license": "CC BY-SA 4.0",
+    "artist": "<a href=\"//commons.wikimedia.org/w/index.php?title=User:BlakeRichard00&amp;action=edit&amp;redlink=1\" class=\"new\" title=\"User:BlakeRichard00 (page does not exist)\">BlakeRichard00</a>",
+    "descriptionurl": "https://commons.wikimedia.org/wiki/File:CATERPILLAR_24H_MOTOR_GRADER.jpg"
+  },
+  {
+    "slug": "wheel_loader",
+    "files": [
+      "wheel_loader.jpg",
+      "wheel_loader-thumb.jpg"
+    ],
+    "title": "Caterpillar 950k Wheel Loader.jpg",
+    "license": "CC BY-SA 4.0",
+    "artist": "<a rel=\"nofollow\" class=\"external text\" href=\"https://matthewtrader.com\">Matthew T Rader</a>",
+    "descriptionurl": "https://commons.wikimedia.org/wiki/File:Caterpillar_950k_Wheel_Loader.jpg"
+  },
+  {
+    "slug": "hero",
+    "files": [
+      "hero.jpg"
+    ],
+    "title": "Pelle de carrière CAT 352F-04.jpg",
+    "license": "CC BY-SA 4.0",
+    "artist": "<a href=\"//commons.wikimedia.org/wiki/User:Fran%C3%A7ois_GOGLINS\" title=\"User:François GOGLINS\">François GOGLINS</a>",
+    "descriptionurl": "https://commons.wikimedia.org/wiki/File:Pelle_de_carri%C3%A8re_CAT_352F-04.jpg"
+  }
+]
