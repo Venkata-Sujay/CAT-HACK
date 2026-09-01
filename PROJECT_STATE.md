@@ -171,11 +171,30 @@ cd backend && python verify_demo.py           # expect: ALL 28 CHECKS PASSED (ne
 | Design tokens | `frontend/tailwind.config.js`, `frontend/src/index.css` |
 | Model metrics (auditable) | `ml/artifacts/evaluation_report.json` |
 
-> **Stopping the backend on Windows:** the process appears as `python3.12.exe`, which bash
-> `pkill -f uvicorn` does **not** match. Use PowerShell:
+> **Stopping the backend on Windows — landmine #4.** Two traps stacked on top
+> of each other:
+>
+> 1. The process appears as `python3.12.exe`, so bash `pkill -f uvicorn` does
+>    **not** match it.
+> 2. **`uvicorn --reload` spawns its actual server as a `multiprocessing` CHILD.
+>    Killing the PID that owns port 8000 kills only the RELOADER.** The child
+>    survives, keeps the inherited listening socket, and carries on serving —
+>    while `netstat` shows the port owned by a PID that no longer exists and
+>    `Get-Process` finds nothing. It looks like a ghost. Four of these
+>    accumulated across one session of restarts, all still answering
+>    `/api/health` with a healthy simulator.
+>
+> Kill by COMMAND LINE, not by port:
+> ```powershell
+> Get-CimInstance Win32_Process |
+  Where-Object { $_.CommandLine -like '*uvicorn app.main:app*' -or $_.CommandLine -like '*--multiprocessing-fork*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 > ```
-> Get-NetTCPConnection -LocalPort 8000 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-> ```
+> Then confirm with `netstat -ano | Select-String "LISTENING" | Select-String ":8000"` —
+> it must return nothing. A stale entry pointing at a dead PID clears on its own;
+> an entry pointing at a LIVE PID means a worker is still up.
+>
+> The frontend is a normal `node` process and stops cleanly by port.
 
 ---
 

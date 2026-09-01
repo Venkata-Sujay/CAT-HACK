@@ -86,11 +86,24 @@ python verify_demo.py          # expect: ALL 28 CHECKS PASSED (server must be ru
 | Client — Northstar Mining | `client2@demo.local` |
 | Client — Vertex Infrastructure | `client3@demo.local` |
 
-**Stopping the backend on Windows** — the process shows as `python3.12.exe`, so
-bash `pkill -f uvicorn` does **not** match it. Use:
+**Stopping the backend on Windows** — two traps stacked together:
+
+1. The process shows as `python3.12.exe`, so bash `pkill -f uvicorn` does not
+   match it.
+2. **`uvicorn --reload` runs the real server as a `multiprocessing` CHILD.**
+   Killing whatever owns port 8000 kills only the reloader; the child keeps the
+   inherited socket and carries on serving, while `netstat` shows the port owned
+   by a PID that no longer exists. Four of these piled up in one session, all
+   still answering `/api/health`.
+
+Kill by command line, not by port:
 ```powershell
-Get-NetTCPConnection -LocalPort 8000 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+Get-CimInstance Win32_Process |
+  Where-Object { $_.CommandLine -like '*uvicorn app.main:app*' -or $_.CommandLine -like '*--multiprocessing-fork*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 ```
+Confirm with `netstat -ano | Select-String "LISTENING" | Select-String ":8000"` —
+it must come back empty.
 
 **After editing `tailwind.config.js`, restart the Vite dev server.** Vite caches
 the resolved Tailwind config; a hot reload silently emits an EMPTY stylesheet
